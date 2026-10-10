@@ -1,35 +1,29 @@
 # LIGHT Bookmark 🔖
 
-**Purpose:** Help LIGHT find previously saved context in Notion quickly, then follow the pointer and read the relevant source.
+LIGHT Bookmark is a small, authenticated MCP index that helps LIGHT find saved Notion context quickly. It stores short retrieval cues and pointers—not a second copy of knowledge.
 
-**Status:** Initial design draft. This commit documents the retrieval model; it does not implement a bridge or claim automatic cross-room recall is complete.
+## Current boundary
 
-## Core model
+- **Notion remains canonical.** Search results and cues are locators, not evidence or current truth.
+- The Worker returns a Notion URL; the calling agent must use its authenticated Notion tools to open and read the source page.
+- Save only when the user asks to bookmark context or an agreed workflow requires it. Do not copy full Notion content into D1.
+- The Worker does not create a Notion API credential, OAuth flow, identity, permission gate, or authority layer.
+- Runtime secret configuration and deployment are owned by GO. The Worker fails closed until `LIGHT_BOOKMARK_TOKEN` is configured.
 
-- **Notion remains the canonical knowledge store.**
-- A bookmark is a retrieval cue, pointer, and relationship between relevant sources—not a second copy of the knowledge.
-- A short summary may help identify why a source matters, but it is a navigation aid, not evidence or current truth by itself.
-- LIGHT retrieves only when the current request benefits from prior context; ordinary conversation does not need a memory lookup.
-- Unsaved conversation content cannot be reconstructed from a bookmark.
+## MCP endpoint
 
-## Retrieval path
+Configure the personal MCP connection URL as `https://<worker-host>/mcp` and provide the existing bearer token through the connection's supported authorization setting. Do not commit the token.
 
-1. Understand the current request and identify the missing continuity context.
-2. Search Notion for relevant saved context or bookmark pointers.
-3. Treat search results and snippets as candidate locators, not sufficient evidence.
-4. Open the relevant Notion source and read the needed context.
-5. If the question concerns current operational state, verify against the responsible Owner Source; keep history distinct from current truth.
-6. Answer with source references, or state UNKNOWN when the saved source is missing or inconclusive.
+Tools:
 
-## Evidence so far
+- `search_bookmarks`: search by title, cue, or tags.
+- `get_bookmark`: retrieve one pointer using its bookmark/page id.
+- `save_bookmark`: add or update a title, Notion URL, concise cue, and tags.
 
-In the current session, the existing Notion search and page-load tools retrieved and opened a relevant saved LIGHT context page. That confirms on-demand retrieval in this session. It does **not** prove automatic invocation, tool availability, or consistent recall in every new room.
+The authenticated, read-only `GET /bookmarks?q=...` route is retained for compatibility. `GET /health` reports only basic service/version status.
 
-## Non-goals
+## Validation
 
-- Creating a duplicate knowledge store or another GO Brain.
-- Treating Notion bookmarks as authority, Work lifecycle, or an Owner Source.
-- Recovering content from chats that were never saved.
-- Automatically writing or changing Notion pages as part of lookup.
+Run `npm test` for local protocol/auth/pointer checks. A passing local test does not prove Cloudflare deployment, D1 binding, secret configuration, live MCP connectivity, or cross-room retrieval.
 
-See [design](docs/design.md) for the proposed boundary and validation gate.
+See [design](docs/design.md) for the role boundary and evidence status.

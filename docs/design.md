@@ -1,55 +1,43 @@
-# LIGHT Bookmark — Design
+# LIGHT Bookmark — Design and status
 
-## Problem
+## Purpose
 
-LIGHT can search and load saved Notion pages, but retrieval must bring back enough context to be useful. Search snippets alone can omit surrounding decisions, constraints, and relationships. A separate memory store would duplicate Notion and create another source to maintain.
+LIGHT Bookmark is a retrieval index for saved context—work, ideas, decisions, and lessons that should be fast to locate. It is not a second brain or knowledge store. A bookmark carries a pointer and concise orientation so LIGHT can open and read the canonical Notion source.
 
-## Decision
+## Boundaries
 
-Treat LIGHT Bookmark as a lightweight retrieval/indexing function over Notion. Its job is to help LIGHT find the right source and resume from it—not to hold the source content itself.
+- **Notion:** canonical saved content; LIGHT reads the source page before relying on its details.
+- **LIGHT Bookmark Worker + D1:** index of Notion page ids/URLs, titles, short cues, and tags.
+- **LIGHT:** decides when prior context matters, searches the index, then reads the page with its authenticated Notion tools.
+- **GO:** runtime owner for Cloudflare secret configuration, deployment, and live testing.
 
-### Bookmark shape
+The Worker does not call Notion's API or hold Notion credentials. It does not establish identity, permissions, lifecycle, or authority. Historical cues do not prove current state; consult the responsible Owner Source when current status matters. Unsaved conversation content cannot be reconstructed.
 
-A bookmark should contain only what improves retrieval:
+## Retrieval flow
 
-- a concise topic or recognition cue;
-- a pointer to the canonical Notion page or record;
-- the relationship or reason the source is relevant;
-- an optional brief orientation summary, clearly non-authoritative.
+1. Identify whether prior saved context materially helps answer the current request.
+2. Search bookmark pointers using the topic or distinctive cue.
+3. Treat matches as candidate locators only.
+4. Open the selected Notion page and read the relevant context.
+5. Verify current operational truth against its Owner Source when needed.
+6. Preserve conflicts and uncertainty; report missing context as UNKNOWN.
 
-Do not copy full source content into the bookmark. Do not infer current status from an old bookmark.
+## Interface
 
-### Runtime behavior
+The Worker exposes Streamable HTTP JSON-RPC at `/mcp`, guarded by the existing `LIGHT_BOOKMARK_TOKEN` bearer secret:
 
-- **Trigger:** use retrieval when the request depends on a prior work thread, idea, decision, lesson, or other saved context.
-- **Locate:** search Notion using the current topic and relevant cues.
-- **Read:** open the selected source and read enough surrounding content to restore meaning and constraints.
-- **Verify:** when current status or authority matters, consult the responsible Owner Source. Preserve conflicts and uncertainty.
-- **Return:** answer with the source pointer and distinguish saved history from present truth.
-- **No hit:** say the saved context was not found; do not invent missing history.
+- `search_bookmarks` — read-only lookup by title/cue/tags.
+- `get_bookmark` — read-only retrieval of one pointer.
+- `save_bookmark` — explicit, idempotent upsert of one Notion pointer and brief cue.
 
-Work identity and lifecycle remain in the Work System. Current operational truth remains with each Owner Source. The bookmark does not change permissions or authority.
+`GET /bookmarks` remains as an authenticated compatibility route. No Notion content is copied into D1.
 
-## Start with existing tools
+## Evidence status
 
-The existing Notion search and page-load tools are the first retrieval path. Do not build a separate service merely to wrap the same search/load calls.
+- **CONFIRMED (repo readback, 2026-10-10):** the initial Worker exposed authenticated read-only REST `/bookmarks`; D1 schema was present.
+- **CONFIRMED (local test run, 2026-10-10):** 3 tests passed for auth, MCP discovery, save/search/get, and URL/id validation using an in-memory D1 mock.
+- **UNKNOWN:** the new MCP implementation is not yet confirmed deployed or live-tested.
+- **CONFLICT:** GO's status said deploy was pending, while Cloudflare deployment readback showed Wrangler deployments at 2026-10-10 15:12 UTC and 15:14 UTC. Cloudflare is the runtime truth owner; the latest readback does not prove the new MCP code is deployed.
+- **UNKNOWN:** whether the secret is configured, the live D1 binding is active, or a personal MCP connection can reach `/mcp`.
 
-## Validation gate before a bridge
-
-Run a fresh-room test using a continuity-dependent prompt whose relevant context is already saved in Notion. Record whether LIGHT:
-
-1. invokes retrieval without being explicitly told to search;
-2. finds the relevant pointer rather than an unrelated match;
-3. opens and uses the source page, not just the search excerpt;
-4. separates historical context from current truth; and
-5. reports missing or ambiguous context as UNKNOWN.
-
-A thin, read-only bridge is justified only if this test shows a repeatable gap—such as inconsistent tool availability, poor retrieval precision, or failure to invoke search when context is needed. If built, it should query Notion and return pointers plus concise orientation; it should not become a second store.
-
-## Current unknowns
-
-- Whether the relevant Notion tools are available consistently in newly opened rooms.
-- Whether a short personalization instruction reliably triggers retrieval at the right time.
-- Whether native search can consistently rank LIGHT-specific context well enough without a curated pointer index.
-
-These are validation questions, not reasons to create additional infrastructure before testing.
+Next proof belongs to GO: configure the agreed secret, verify the D1 binding, deploy the current repository commit, then test authenticated `initialize → tools/list → save → search → readback`. A separate fresh-room test must confirm LIGHT searches the MCP index and then opens the Notion source.

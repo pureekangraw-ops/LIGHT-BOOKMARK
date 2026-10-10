@@ -1,0 +1,8 @@
+{
+  "name": "light-bookmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
