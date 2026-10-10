@@ -1,0 +1,11 @@
+name = "light-bookmark"
+main = "src/index.js"
+compatibility_date = "2026-10-10"
+
+# Bind the existing D1 database by inserting its real ID before deploying.
+# [[d1_databases]]
+# binding = "BOOKMARKS"
+# database_name = "lightbookmarks"
+# database_id = "<existing-d1-database-id>"
+
+# Set LIGHT_BOOKMARK_TOKEN as a Worker secret; never commit it.
