@@ -77,7 +77,7 @@ test("MCP advertises tools and saves/searches/returns a Notion pointer", async (
 
   const listed = await worker.fetch(request({ jsonrpc: "2.0", id: 2, method: "tools/list" }), env);
   const tools = (await listed.json()).result.tools.map((item) => item.name);
-  assert.deepEqual(tools, ["search_bookmarks", "get_bookmark", "save_bookmark"]);
+  assert.deepEqual(tools, ["pantheon_health", "search_bookmarks", "get_bookmark", "save_bookmark"]);
 
   const pageId = "0123456789abcdef0123456789abcdef";
   const saved = await worker.fetch(
