@@ -1,6 +1,7 @@
+import { pantheonHealth } from "./pantheon-health.js";
 // LIGHT Bookmark: a small MCP pointer index over Notion pages.
 // Notion remains the source of truth; this Worker stores only retrieval cues.
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const MCP_VERSION = "2025-11-25";
 const SUPPORTED_MCP_VERSIONS = new Set(["2025-03-26", "2025-06-18", MCP_VERSION]);
 const MAX_LIMIT = 30;
@@ -8,6 +9,12 @@ const MAX_QUERY_LENGTH = 100;
 const MAX_CUE_LENGTH = 500;
 
 const TOOLS = [
+  {
+    name: "pantheon_health",
+    description: "Read-only health check of the existing PANTHEON WorkHub through an internal service binding. Does not read, create or execute tasks, and does not transfer Notion content.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  },
   {
     name: "search_bookmarks",
     description:
@@ -203,8 +210,14 @@ async function saveBookmark(db, args) {
   return getBookmark(db, pointer.notion_page_id);
 }
 
-async function callTool(db, name, args) {
+async function callTool(db, name, args, env) {
   try {
+    if (name === "pantheon_health") {
+      if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).length) {
+        return toolError("pantheon_health accepts no arguments.");
+      }
+      return toolResult(await pantheonHealth(env));
+    }
     if (name === "search_bookmarks") {
       const limit = clampLimit(args?.limit);
       return toolResult({
@@ -264,7 +277,7 @@ async function handleMcp(request, env) {
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "light-bookmark", version: VERSION },
           instructions:
-            "LIGHT Bookmark stores pointers and short retrieval cues only. Notion pages remain canonical; read the source page before relying on its contents.",
+            "LIGHT Bookmark stores Notion pointers only. pantheon_health checks PANTHEON through an internal read-only service binding. Read original Notion pages before relying on bookmarked cues.",
         },
       },
       200,
@@ -280,7 +293,7 @@ async function handleMcp(request, env) {
   if (message.method === "tools/call") {
     const name = message.params?.name;
     const args = message.params?.arguments || {};
-    const result = await callTool(env.BOOKMARKS, name, args);
+    const result = await callTool(env.BOOKMARKS, name, args, env);
     return jsonResponse({ jsonrpc: "2.0", id: message.id, result }, 200, responseHeaders);
   }
   return jsonResponse(rpcError(message.id, -32601, "Method not found"), 200, responseHeaders);
