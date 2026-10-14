@@ -9,3 +9,9 @@ database_name = "lightbookmarks"
 database_id = "28abed4a-081a-4927-a3ac-2ac31aca3177"
 
 # Set LIGHT_BOOKMARK_TOKEN as a Worker secret; never commit it.
+
+# Read-only access to the existing PANTHEON production Worker via internal routing.
+# No WORKHUB_TOKEN is copied into LIGHT-BOOKMARK.
+[[services]]
+binding = "PANTHEON"
+service = "phatheon-workhub"
