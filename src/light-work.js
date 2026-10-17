@@ -28,7 +28,10 @@ export async function runLightWorkTool(name,args={},env={}){
   let response;
   try{response=await env.PANTHEON_LIGHT.lightCall(payload);}
   catch{throw Error("LIGHT_WORK_UPSTREAM_UNAVAILABLE");}
-  if(!response||typeof response!=="object"||response.caller!=="LIGHT-BOOKMARK")throw Error("LIGHT_WORK_INVALID_UPSTREAM");
+  if(!response||typeof response!=="object")throw Error("LIGHT_WORK_INVALID_UPSTREAM");
   if(response.ok!==true)return {ok:false,status:response.status||"UPSTREAM_REJECTED",upstream_status:response.upstream_status??null};
-  return {ok:true,caller:"LIGHT-BOOKMARK",executed:false,...response.result};
+  if(response.caller!=="LIGHT-BOOKMARK"||!response.result||typeof response.result!=="object")throw Error("LIGHT_WORK_INVALID_UPSTREAM");
+  const out={ok:true,caller:"LIGHT-BOOKMARK",result:response.result};
+  if(name==="light_pantheon_create_task"||name==="light_pantheon_queue_factory")out.execution_requested=false;
+  return out;
 }
