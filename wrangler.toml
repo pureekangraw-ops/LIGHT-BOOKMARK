@@ -24,3 +24,10 @@ database_id = "28abed4a-081a-4927-a3ac-2ac31aca3177"
 [[services]]
 binding = "PANTHEON"
 service = "phatheon-workhub"
+
+# Task preparation through PANTHEON's restricted LightBridge RPC entrypoint.
+# This has NO access to PANTHEON's OwnerBridge, deploy, dispatch or secrets.
+[[services]]
+binding = "PANTHEON_LIGHT"
+service = "phatheon-workhub"
+entrypoint = "LightBridge"
