@@ -1,9 +1,10 @@
 import { pantheonHealth } from "./pantheon-health.js";
 import { PROVIDER_TOOLS, isProviderTool, runProviderTool } from "./provider-read.js";
 import { LIGHT_WORK_TOOLS, isLightWorkTool, runLightWorkTool } from "./light-work.js";
+import { LIGHT_DRIVE_TOOLS, isLightDriveTool, runLightDriveTool } from "./drive-bridge.js";
 // LIGHT Bookmark: a small MCP pointer index over Notion pages.
 // Notion remains the source of truth; this Worker stores only retrieval cues.
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const MCP_VERSION = "2025-11-25";
 const SUPPORTED_MCP_VERSIONS = new Set(["2025-03-26", "2025-06-18", MCP_VERSION]);
 const MAX_LIMIT = 30;
@@ -13,6 +14,7 @@ const MAX_CUE_LENGTH = 500;
 const TOOLS = [
   ...PROVIDER_TOOLS,
   ...LIGHT_WORK_TOOLS,
+  ...LIGHT_DRIVE_TOOLS,
   {
     name: "pantheon_health",
     description: "Read-only health check of the existing PANTHEON WorkHub through an internal service binding. Does not read, create or execute tasks, and does not transfer Notion content.",
@@ -218,6 +220,7 @@ async function callTool(db, name, args, env) {
   try {
     if (isProviderTool(name)) return toolResult(await runProviderTool(name, args, env));
     if (isLightWorkTool(name)) return toolResult(await runLightWorkTool(name, args, env));
+    if (isLightDriveTool(name)) return toolResult(await runLightDriveTool(name, args, env));
     if (name === "pantheon_health") {
       if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).length) {
         return toolError("pantheon_health accepts no arguments.");
@@ -283,7 +286,7 @@ async function handleMcp(request, env) {
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "light-bookmark", version: VERSION },
           instructions:
-            "LIGHT Bookmark stores Notion pointers, exposes allowlisted read-only GitHub/GitLab/Cloudflare tools, and prepares PANTHEON tasks through the LIGHT-only Bridge. Factory execution and external writes require owner authorization. Google Drive uses Notion AI directly.",
+            "LIGHT Bookmark stores Notion pointers, exposes allowlisted read-only GitHub/GitLab/Cloudflare tools, and prepares PANTHEON tasks through the LIGHT-only Bridge. Factory execution and external writes require owner authorization. Google Drive is read through PANTHEON LightBridge with folder-scoped access; LIGHT has no Google credentials.",
         },
       },
       200,
