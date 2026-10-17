@@ -2,6 +2,15 @@ name = "light-bookmark"
 main = "src/index.js"
 compatibility_date = "2026-10-10"
 
+[vars]
+LIGHT_GITHUB_REPOS = "pureekangraw-ops/Go-Together,pureekangraw-ops/LIGHT-BOOKMARK,pureekangraw-ops/Pantheon-WorkHub,pureekangraw-ops/yggmetro-web"
+LIGHT_GITLAB_PROJECTS = "yggmetro-group1/factory-district"
+LIGHT_CF_WORKERS = "light-bookmark,go-together,phatheon-workhub,factory-district1"
+# For Cloudflare account deployment metadata, set LIGHT_CF_ACCOUNT_ID as a variable
+# and LIGHT_CF_READ_TOKEN as a scoped secret. GitHub and GitLab read tokens are optional
+# for public repositories; use LIGHT_GITHUB_READ_TOKEN/LIGHT_GITLAB_READ_TOKEN for private.
+
+
 # Bind the existing D1 database by inserting its real ID before deploying.
 [[d1_databases]]
 binding = "BOOKMARKS"
@@ -15,3 +24,10 @@ database_id = "28abed4a-081a-4927-a3ac-2ac31aca3177"
 [[services]]
 binding = "PANTHEON"
 service = "phatheon-workhub"
+
+# Task preparation through PANTHEON's restricted LightBridge RPC entrypoint.
+# This has NO access to PANTHEON's OwnerBridge, deploy, dispatch or secrets.
+[[services]]
+binding = "PANTHEON_LIGHT"
+service = "phatheon-workhub"
+entrypoint = "LightBridge"
