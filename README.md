@@ -86,3 +86,25 @@ Notion-side connection, or private-provider authentication is implied by this pr
 - Cloudflare readback exposes only deployment/version IDs, dates, rollout percentages.
   No source code, bindings, API keys, or account-wide mutation endpoints.
 - GO and LIGHT maintain separate knowledge, keys, approvals, and audit identities.
+
+## Work actions (paired with PANTHEON LightBridge PR #13)
+
+LIGHT can now prepare work through its own **restricted** PANTHEON service binding:
+`PANTHEON_LIGHT` with Cloudflare `entrypoint = "LightBridge"`.
+
+- `light_pantheon_tasks`: read queue or exact task.
+- `light_pantheon_create_task`: create queued PANTHEON task (does not execute).
+- `light_pantheon_queue_factory`: prepare LOGIC trainee job in queue (does not dispatch).
+- `light_pantheon_factory`: read factory status or a specific job receipt.
+
+The paired PANTHEON Worker must deploy its separate `LightBridge` class and
+explicitly enable `LIGHT_BRIDGE_ENABLED=true` for task reads and
+`LIGHT_BRIDGE_CREATE_ENABLED=true` for creating/queueing tasks.
+Defaults are deny. Existing `PANTHEON` Service Binding stays health-only.
+
+No tools exist for direct GitHub/GitLab source writes, Cloudflare deployments,
+Factory dispatch or reconcile, production merges, rollback, or permissions.
+Use PANTHEON requests to propose those actions; BIG approves the actual
+execution with the authorized channel. Do not confuse queued with executed.
+
+Dependency: https://github.com/pureekangraw-ops/Pantheon-WorkHub/pull/13
