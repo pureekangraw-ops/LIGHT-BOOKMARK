@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { LIGHT_DRIVE_TOOLS,runLightDriveTool } from "../src/drive-bridge.js";
 const root="1gmu8Mh8Uve9VX3bRjaPGF4qWmMHfCniz";
 const env={PANTHEON_LIGHT:{lightCall:async args=>({ok:true,caller:"LIGHT-BOOKMARK",capability:"LIGHT_DRIVE_READ",result:{args,folder_ids:[root]}})}};
-test("Drive tools advertise accurate read and write permissions",()=>{assert.deepEqual(LIGHT_DRIVE_TOOLS.map(x=>x.name),["light_drive_roots","light_drive_list","light_drive_create","light_drive_update","light_drive_move","light_drive_file"]);for(const tool of LIGHT_DRIVE_TOOLS)assert.equal(tool.annotations.readOnlyHint,!["light_drive_create","light_drive_update","light_drive_move"].includes(tool.name));});
+test("Drive tools advertise accurate read and write permissions",()=>{assert.deepEqual(LIGHT_DRIVE_TOOLS.map(x=>x.name),["light_drive_roots","light_drive_list","light_drive_file"]);for(const tool of LIGHT_DRIVE_TOOLS)assert.equal(tool.annotations.readOnlyHint,true);});
 test("roots, list and file forward to PANTHEON only",async()=>{
   for(const [name,args] of [["light_drive_roots",{}],["light_drive_list",{folder_id:root}],["light_drive_file",{file_id:"1mi5UMJRE2Q6nM9u9kz0wgdEVw3QSR2S"}]]){
     const r=await runLightDriveTool(name,args,env);assert.equal(r.ok,true);assert.equal(r.result.args.name,name);assert.deepEqual(r.result.args.args,args);
