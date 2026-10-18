@@ -48,8 +48,8 @@ function status(env){
   return {read_only:true,github:{ready:!!list(env.LIGHT_GITHUB_REPOS).size,mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
     gitlab:{ready:!!list(env.LIGHT_GITLAB_PROJECTS).size,mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only"},
     cloudflare:{ready:!!(env.LIGHT_CF_READ_TOKEN&&env.LIGHT_CF_ACCOUNT_ID&&list(env.LIGHT_CF_WORKERS).size)},
-    drive:{ready:false,mode:"CONNECT_GOOGLE_DRIVE_DIRECTLY_IN_NOTION_AI"},
-    pantheon:{mode:"health_only"},write_actions:false};
+    drive:{ready:false,bridge_bound:!!env.PANTHEON_LIGHT,mode:"PANTHEON_DRIVE_READ_REQUIRES_CHECK"},
+    pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
 }
 export async function runProviderTool(name,args={},env={},fetcher=fetch){
   need(isProviderTool(name),"UNKNOWN_PROVIDER_TOOL");

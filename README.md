@@ -108,3 +108,28 @@ Use PANTHEON requests to propose those actions; BIG approves the actual
 execution with the authorized channel. Do not confuse queued with executed.
 
 Dependency: https://github.com/pureekangraw-ops/Pantheon-WorkHub/pull/13
+
+## Scoped Google Drive via PANTHEON (proposed)
+
+LIGHT now advertises `light_drive_roots`, `light_drive_list`, and `light_drive_file`.
+These MCP tools invoke the **existing** Cloudflare `PANTHEON_LIGHT` Service Binding
+(`LightBridge.lightCall`), which is the only path to the Google Drive API.
+Neither Google client ID, client secret, refresh token nor Google access token is
+stored by, sent to, or returned to LIGHT. Google OAuth exchange happens inside
+PANTHEON, using the existing `GOOGLE_ID_SECRET`, `GOOGLE_SECRET`, and
+`GOOGLE_REFRESH_TOKEN` bindings.
+
+Drive folder access is explicitly scoped by PANTHEON's
+`PANTHEON_DRIVE_ALLOWED_FOLDERS`. The first configured root is the
+HERMES Academy run-results folder. File read checks folder ancestry.
+All Drive operations are **read-only** and text-limited. Authorization in
+Notion AI to this MCP still requires the existing `LIGHT_BOOKMARK_TOKEN`.
+
+GitHub, GitLab and Cloudflare work remain under **Factory District** as the
+system of record; this Drive addition does not migrate those integrations to
+PANTHEON or copy Factory tokens. The legacy LIGHT read-only provider tools
+remain unchanged pending a separately verified Factory tool bridge.
+
+This change requires both repositories' PRs to be merged and deployed, then
+an authorized Notion AI `light_drive_roots` and `light_drive_list` test.
+OAuth scope and current refresh-token validity are not established by tests.
