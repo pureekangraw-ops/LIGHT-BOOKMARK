@@ -46,7 +46,7 @@ const repoArgs = (a,key,envList) => {
 };
 function status(env){
   return {read_only:true,github:{ready:!!list(env.LIGHT_GITHUB_REPOS).size,mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
-    gitlab:{ready:!!list(env.LIGHT_GITLAB_PROJECTS).size,mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only"},
+    gitlab:{ready:!!list(env.LIGHT_GITLAB_PROJECTS).size,mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:"PANTHEON_LIGHT_TASK"},
     cloudflare:{ready:!!(env.LIGHT_CF_READ_TOKEN&&env.LIGHT_CF_ACCOUNT_ID&&list(env.LIGHT_CF_WORKERS).size)},
     drive:{ready:false,bridge_bound:!!env.PANTHEON_LIGHT,mode:"PANTHEON_DRIVE_READ_REQUIRES_CHECK"},
     pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
@@ -73,12 +73,14 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   }
   if(name==="light_gitlab_project"){
     repoArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
+    if(!env.LIGHT_GITLAB_READ_TOKEN)return {ok:false,status:"PRIVATE_ACCESS_NOT_CONFIGURED",project:args.project,route:"light_pantheon_create_task",message:"Use PANTHEON to request a private-project inspection; public GitLab access cannot read private projects. Do not change repository visibility."};
     const data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
       {"Accept":"application/json",...auth(env.LIGHT_GITLAB_READ_TOKEN)},false,fetcher);
     return {source:"gitlab",project:data.path_with_namespace,description:data.description||"",visibility:data.visibility,default_branch:data.default_branch,url:data.web_url,last_activity_at:data.last_activity_at};
   }
   if(name==="light_gitlab_file"){
     fileArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
+    if(!env.LIGHT_GITLAB_READ_TOKEN)return {ok:false,status:"PRIVATE_ACCESS_NOT_CONFIGURED",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request an authorized private-file inspection through PANTHEON; do not change visibility or retry public access."};
     const url="https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project)+"/repository/files/"+encodeURIComponent(args.path)+"/raw?ref="+encodeURIComponent(args.ref||"main");
     const body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);
     return {source:"gitlab",project:args.project,path:args.path,ref:args.ref||"main",text:body,truncated:body.length>=MAX_TEXT};
