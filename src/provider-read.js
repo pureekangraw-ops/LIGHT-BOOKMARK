@@ -73,16 +73,18 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   }
   if(name==="light_gitlab_project"){
     repoArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
-    if(!env.LIGHT_GITLAB_READ_TOKEN)return {ok:false,status:"PRIVATE_ACCESS_NOT_CONFIGURED",project:args.project,route:"light_pantheon_create_task",message:"Use PANTHEON to request a private-project inspection; public GitLab access cannot read private projects. Do not change repository visibility."};
-    const data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
-      {"Accept":"application/json",...auth(env.LIGHT_GITLAB_READ_TOKEN)},false,fetcher);
+    let data;
+    try {data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
+      {"Accept":"application/json",...auth(env.LIGHT_GITLAB_READ_TOKEN)},false,fetcher);}
+    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_PROJECT_REQUIRES_AUTHORIZED_ROUTE",project:args.project,route:"light_pantheon_create_task",message:"Request an authorized inspection via PANTHEON; never make the project public."};throw error;}
     return {source:"gitlab",project:data.path_with_namespace,description:data.description||"",visibility:data.visibility,default_branch:data.default_branch,url:data.web_url,last_activity_at:data.last_activity_at};
   }
   if(name==="light_gitlab_file"){
     fileArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
-    if(!env.LIGHT_GITLAB_READ_TOKEN)return {ok:false,status:"PRIVATE_ACCESS_NOT_CONFIGURED",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request an authorized private-file inspection through PANTHEON; do not change visibility or retry public access."};
     const url="https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project)+"/repository/files/"+encodeURIComponent(args.path)+"/raw?ref="+encodeURIComponent(args.ref||"main");
-    const body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);
+    let body;
+    try{body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);}
+    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_FILE_REQUIRES_AUTHORIZED_ROUTE",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request authorized file inspection via PANTHEON; never make the project public."};throw error;}
     return {source:"gitlab",project:args.project,path:args.path,ref:args.ref||"main",text:body,truncated:body.length>=MAX_TEXT};
   }
   if(name==="light_cloudflare_worker"){
