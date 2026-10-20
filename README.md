@@ -61,10 +61,12 @@ work. Set `LIGHT_CF_ACCOUNT_ID` and **secret** `LIGHT_CF_READ_TOKEN` with
 Cloudflare Workers Scripts read permission to enable Worker deployment inspection.
 Never copy GO Brain, WorkHub, or Factory tokens into LIGHT.
 
-**Google Drive:** connect Google Drive directly to Notion Agent under its own
-Google account consent. The LIGHT Bookmark index may store Notion pointers to
-knowledge, but it does not impersonate Google Drive, store OAuth refresh tokens,
-or expose a misleading "Drive connected" tool.
+**Google Drive:** LIGHT uses PANTHEON capabilities `pantheon.drive.read` and
+`pantheon.drive.write`. PANTHEON holds the OAuth credentials; LIGHT never receives
+tokens. Access covers files visible to the authorized Google account. LIGHT may
+read, create, edit, rename, move, copy, share, or update permissions when the user
+requests it. No file-delete or permission-delete operation is exposed; the OAuth
+scope itself can still have broader authority.
 
 ### Connect Notion Agent
 
@@ -109,27 +111,31 @@ execution with the authorized channel. Do not confuse queued with executed.
 
 Dependency: https://github.com/pureekangraw-ops/Pantheon-WorkHub/pull/13
 
-## Scoped Google Drive via PANTHEON (proposed)
+## Account-wide Google Drive via PANTHEON (proposed)
 
-LIGHT now advertises `light_drive_roots`, `light_drive_list`, and `light_drive_file`.
-These MCP tools invoke the **existing** Cloudflare `PANTHEON_LIGHT` Service Binding
-(`LightBridge.lightCall`), which is the only path to the Google Drive API.
-Neither Google client ID, client secret, refresh token nor Google access token is
-stored by, sent to, or returned to LIGHT. Google OAuth exchange happens inside
-PANTHEON, using the existing `GOOGLE_ID_SECRET`, `GOOGLE_SECRET`, and
-`GOOGLE_REFRESH_TOKEN` bindings.
+LIGHT advertises `light_drive_roots`, `light_drive_list`, `light_drive_file`,
+`light_drive_permissions`, `light_drive_create`, `light_drive_update`,
+`light_drive_rename`, `light_drive_move`, `light_drive_copy`, `light_drive_share`,
+and `light_drive_permission_update`. These invoke the existing `PANTHEON_LIGHT`
+Service Binding using `pantheon.drive.read` or `pantheon.drive.write`. Google OAuth
+credentials stay in PANTHEON; they are never stored by, sent to, or returned to
+LIGHT.
 
-Drive folder access is explicitly scoped by PANTHEON's
-`PANTHEON_DRIVE_ALLOWED_FOLDERS`. The first configured root is the
-HERMES Academy run-results folder. File read checks folder ancestry.
-All Drive operations are **read-only** and text-limited. Authorization in
-Notion AI to this MCP still requires the existing `LIGHT_BOOKMARK_TOKEN`.
+The connection can access all files visible to the Google account authorized in
+PANTHEON; no folder allowlist is used. Reads require `drive.readonly` or `drive`;
+writes require the full `drive` scope. Google classifies these broad scopes as
+restricted; user consent, app verification, or a security assessment may be
+required. [Google Drive API scopes](https://developers.google.com/drive/api/guides/about-auth)
 
-GitHub, GitLab and Cloudflare work remain under **Factory District** as the
-system of record; this Drive addition does not migrate those integrations to
-PANTHEON or copy Factory tokens. The legacy LIGHT read-only provider tools
-remain unchanged pending a separately verified Factory tool bridge.
+The tool layer has no file-delete or permission-delete operation and never sends
+an HTTP DELETE request. It supports file/folder creation, supported-text edits,
+rename, move, copy, adding user/group/domain/anyone permissions, and updating a
+permission role or link-discovery setting. Ownership transfer is not exposed.
+Sharing can expose content externally; only invoke it when the user explicitly
+requests sharing. Reads and writes are bounded, and large lists use pagination.
+The `drive` OAuth token itself still has wider authority than this tool layer.
 
-This change requires both repositories' PRs to be merged and deployed, then
-an authorized Notion AI `light_drive_roots` and `light_drive_list` test.
-OAuth scope and current refresh-token validity are not established by tests.
+Both repositories' PRs must be reviewed and deployed together, then tested with
+the existing Google OAuth grant and staging-safe files. Refresh-token validity
+and OAuth scope remain unverified until runtime readback succeeds. Do not deploy
+to production before the scope and preview environment are verified.

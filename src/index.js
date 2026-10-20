@@ -4,7 +4,7 @@ import { LIGHT_WORK_TOOLS, isLightWorkTool, runLightWorkTool } from "./light-wor
 import { LIGHT_DRIVE_TOOLS, isLightDriveTool, runLightDriveTool } from "./drive-bridge.js";
 // LIGHT Bookmark: a small MCP pointer index over Notion pages.
 // Notion remains the source of truth; this Worker stores only retrieval cues.
-const VERSION = "0.5.0";
+const VERSION = "0.7.0"
 const MCP_VERSION = "2025-11-25";
 const SUPPORTED_MCP_VERSIONS = new Set(["2025-03-26", "2025-06-18", MCP_VERSION]);
 const MAX_LIMIT = 30;
@@ -286,7 +286,7 @@ async function handleMcp(request, env) {
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "light-bookmark", version: VERSION },
           instructions:
-            "LIGHT Bookmark stores Notion pointers, exposes allowlisted read-only GitHub/GitLab/Cloudflare tools, and prepares PANTHEON tasks through the LIGHT-only Bridge. Factory execution and external writes require owner authorization. Google Drive is read through PANTHEON LightBridge with folder-scoped access; LIGHT has no Google credentials.",
+            "LIGHT Bookmark stores Notion pointers, exposes allowlisted read-only GitHub/GitLab/Cloudflare tools, and prepares PANTHEON tasks through the LIGHT-only Bridge. Factory execution and external writes require owner authorization. Google Drive is available through PANTHEON capabilities pantheon.drive.read and pantheon.drive.write; OAuth credentials stay in PANTHEON. LIGHT exposes read, create, edit, move, copy, share, and permission-update tools, but no delete operation. Only make Drive changes when the user requests them.",
         },
       },
       200,
