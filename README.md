@@ -61,10 +61,11 @@ work. Set `LIGHT_CF_ACCOUNT_ID` and **secret** `LIGHT_CF_READ_TOKEN` with
 Cloudflare Workers Scripts read permission to enable Worker deployment inspection.
 Never copy GO Brain, WorkHub, or Factory tokens into LIGHT.
 
-**Google Drive:** connect Google Drive directly to Notion Agent under its own
-Google account consent. The LIGHT Bookmark index may store Notion pointers to
-knowledge, but it does not impersonate Google Drive, store OAuth refresh tokens,
-or expose a misleading "Drive connected" tool.
+**Google Drive:** LIGHT reads Drive only through PANTHEON capability
+`pantheon.drive.read`. PANTHEON holds the OAuth credentials; LIGHT receives
+bounded read results and never receives tokens. Account-wide access depends on
+explicit Google OAuth consent. No Drive writes, sharing, or permission changes
+are exposed.
 
 ### Connect Notion Agent
 
@@ -109,27 +110,29 @@ execution with the authorized channel. Do not confuse queued with executed.
 
 Dependency: https://github.com/pureekangraw-ops/Pantheon-WorkHub/pull/13
 
-## Scoped Google Drive via PANTHEON (proposed)
+## Account-wide read-only Google Drive via PANTHEON (proposed)
 
-LIGHT now advertises `light_drive_roots`, `light_drive_list`, and `light_drive_file`.
-These MCP tools invoke the **existing** Cloudflare `PANTHEON_LIGHT` Service Binding
-(`LightBridge.lightCall`), which is the only path to the Google Drive API.
-Neither Google client ID, client secret, refresh token nor Google access token is
-stored by, sent to, or returned to LIGHT. Google OAuth exchange happens inside
-PANTHEON, using the existing `GOOGLE_ID_SECRET`, `GOOGLE_SECRET`, and
-`GOOGLE_REFRESH_TOKEN` bindings.
+LIGHT advertises `light_drive_roots`, `light_drive_list`, and `light_drive_file`.
+These tools invoke the existing `PANTHEON_LIGHT` Service Binding and the explicit
+PANTHEON capability `pantheon.drive.read`. Neither Google client ID, client
+secret, refresh token nor access token is stored by, sent to, or returned to
+LIGHT; Google OAuth exchange happens inside PANTHEON.
 
-Drive folder access is explicitly scoped by PANTHEON's
-`PANTHEON_DRIVE_ALLOWED_FOLDERS`. The first configured root is the
-HERMES Academy run-results folder. File read checks folder ancestry.
-All Drive operations are **read-only** and text-limited. Authorization in
-Notion AI to this MCP still requires the existing `LIGHT_BOOKMARK_TOKEN`.
+The capability reads files visible to the Google account authorized in
+PANTHEON and does not use a folder allowlist. The account-wide read-only grant
+must include `https://www.googleapis.com/auth/drive.readonly` (or the broader
+`drive` scope); a per-file `drive.file` grant is insufficient. Google classifies
+`drive.readonly` as a restricted scope, so consent, app verification, or a
+security assessment may be required. PANTHEON fails closed if the OAuth scope
+is missing or narrower than the required account-wide read scope.
 
-GitHub, GitLab and Cloudflare work remain under **Factory District** as the
-system of record; this Drive addition does not migrate those integrations to
-PANTHEON or copy Factory tokens. The legacy LIGHT read-only provider tools
-remain unchanged pending a separately verified Factory tool bridge.
+Only read operations are exposed. LIGHT cannot create, update, move, delete,
+share, or change permissions in Drive. Returned text and upstream bodies are
+bounded, and large Drive listings use pagination. GitHub, GitLab and Cloudflare
+remain under Factory District; this does not move those integrations or copy
+Factory tokens.
 
-This change requires both repositories' PRs to be merged and deployed, then
-an authorized Notion AI `light_drive_roots` and `light_drive_list` test.
-OAuth scope and current refresh-token validity are not established by tests.
+This change requires both repositories' PRs to be merged and deployed, followed
+by a staging test of a file outside the former HERMES Academy runs folder.
+Existing refresh-token validity and Drive scope remain unverified until that
+OAuth readback succeeds. Do not deploy to production before scope verification.
