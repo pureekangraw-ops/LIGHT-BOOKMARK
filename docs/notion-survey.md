@@ -47,3 +47,15 @@ rejected, 404 unavailable or not shared (not proof of absence), and 429 rate
 limited. Existing status/manifest/continuation fields remain compatible.
 Cloudflare invocation logs and traces remain disabled; only application logs
 are persisted. A failed scan with an empty manifest is not an empty workspace.
+
+## Workers runtime redirect fix (v0.8.2)
+
+Workers supports Request redirect modes `manual` and `follow`, but rejects
+`error` during construction. The adapter now uses `manual` and explicitly
+rejects every 3xx response as `redirect_rejected`; it never follows Location
+or sends credentials to a redirect destination. Node-only tests missed this
+runtime difference, so `notion-runtime.test.js` constructs the real adapter
+request in Miniflare/workerd with a synthetic credential and no Notion network
+call. The pinned test runtime supports compatibility date 2026-08-06; production
+keeps its existing 2026-10-10 date. A runtime regression was reproduced before
+this fix and passed afterward. This does not by itself verify real token access.

@@ -24,7 +24,7 @@ const coverage = status => ({status,workspace_complete:false,scope:'Only objects
 const errorType = error => ['AbortError','TimeoutError','TypeError','RangeError','Error'].includes(error?.name) ? error.name : 'OtherError';
 async function request(env, path, body, fetcher) {
  const started=Date.now();
- const base={event:'light_notion_request_error',request_id:crypto.randomUUID(),adapter_version:'0.8.1',operation:path==='/search'?'search':path.startsWith('/pages/')?'page':path.startsWith('/blocks/')?'blocks':path.startsWith('/databases/')?'database':'data_source'};
+ const base={event:'light_notion_request_error',request_id:crypto.randomUUID(),adapter_version:'0.8.2',operation:path==='/search'?'search':path.startsWith('/pages/')?'page':path.startsWith('/blocks/')?'blocks':path.startsWith('/databases/')?'database':'data_source'};
  const failed=(error,phase,category,http_status=null,exception=null,extra={})=>{
   const diagnostic={...base,phase,category,http_status,elapsed_ms:Date.now()-started,...(exception?{error_type:errorType(exception)}:{})};
   console.warn(JSON.stringify(diagnostic));
@@ -34,13 +34,14 @@ async function request(env, path, body, fetcher) {
  try {signal=AbortSignal.timeout(8000);}
  catch(error){return failed('upstream_unavailable','runtime_setup','runtime_setup_error',null,error);}
  try {
-  options={method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+env.NOTION_API,'Notion-Version':VERSION,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'error',signal};
+  options={method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+env.NOTION_API,'Notion-Version':VERSION,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'manual',signal};
   // Validate locally so malformed request setup is distinct from transport errors.
   new Request('https://api.notion.com/v1'+path,options);
  } catch(error){return failed('upstream_unavailable','request_setup','request_setup_error',null,error);}
  let r;
  try {r=await fetcher('https://api.notion.com/v1'+path,options);}
  catch(error){return failed('upstream_unavailable','fetch',signal.aborted || ['AbortError','TimeoutError'].includes(error?.name)?'timeout':'transport_exception',null,error);}
+ if(r.status>=300 && r.status<400)return failed('upstream_error','http_response','redirect_rejected',r.status);
  if(!r.ok){
   if([401,403,404].includes(r.status))return failed('inaccessible','http_response',r.status===401?'authentication':r.status===403?'permission_denied':'not_found_or_not_shared',r.status);
   if(r.status===429){const retry=Number(r.headers.get('Retry-After'));return failed('rate_limited','http_response','rate_limited',429,null,{retry_after_seconds:Number.isFinite(retry)&&retry>0?Math.ceil(retry):1});}

@@ -67,7 +67,7 @@ test('upstream exception never exposes token and invalid continuation never fetc
 test('only fixed-origin read endpoints are called',async()=>{
  for(const [name,args] of [['light_notion_search',{}],['light_notion_data_source',{id:id(1)}],['light_notion_database',{id:id(1)}],['light_notion_page',{id:id(1)}]]){
  await runNotionTool(name,args,env,async(url,init)=>{
- assert.equal(new URL(url).origin,'https://api.notion.com');assert.equal(init.redirect,'error');
+ assert.equal(new URL(url).origin,'https://api.notion.com');assert.equal(init.redirect,'manual');
  if(init.method==='POST')assert.match(new URL(url).pathname,/^\/v1\/(search|data_sources\/[a-f0-9]+\/query)$/);else assert.equal(init.method,'GET');
  assert.equal(init.headers.Authorization,'Bearer test-secret');
  return url.includes('/databases/')?Response.json({data_sources:[]}):url.includes('/pages/')?Response.json({id:id(1)}):list([]);

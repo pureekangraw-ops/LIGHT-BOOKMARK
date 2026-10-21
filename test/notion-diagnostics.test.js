@@ -35,3 +35,8 @@ test('invalid JSON keeps actual response status and parse phase',async t=>{
  const {result}=await capture(t,()=>runNotionTool('light_notion_search',{},env,async()=>new Response('PRIVATE_DOCUMENT',{status:200})));
  assert.equal(result.diagnostic.phase,'response_parse');assert.equal(result.http_status,200);
 });
+test('redirects are rejected without following a credential-bearing request',async t=>{
+ let calls=0;
+ const {result}=await capture(t,()=>runNotionTool('light_notion_search',{},env,async(url,init)=>{calls++;assert.equal(init.redirect,'manual');return new Response('',{status:302,headers:{Location:'https://untrusted.example/'}});}));
+ assert.equal(calls,1);assert.equal(result.diagnostic.category,'redirect_rejected');assert.equal(result.http_status,302);
+});
