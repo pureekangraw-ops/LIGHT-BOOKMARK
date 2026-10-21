@@ -1,3 +1,4 @@
+import {lightDriveRequest} from "./direct-drive.js";
 // No Google credentials are stored in LIGHT; Drive calls go through PANTHEON.
 const READ_ANNOTATIONS={readOnlyHint:true,destructiveHint:false,idempotentHint:true};
 const WRITE_ANNOTATIONS={readOnlyHint:false,destructiveHint:true,idempotentHint:false};
@@ -37,11 +38,20 @@ export async function runLightDriveTool(name,args={},env={}){
   if(name==="light_drive_copy"&&((args.name!==undefined&&(typeof args.name!=="string"||!args.name.trim()||args.name.length>180))||(args.folder_id!==undefined&&!safeFolderId(args.folder_id))))throw Error("INVALID_INPUT");
   if(name==="light_drive_share"&&(!["user","group","domain","anyone"].includes(args.type)||!["reader","commenter","writer"].includes(args.role)||(["user","group"].includes(args.type)&&typeof args.email_address!=="string")||(args.type==="domain"&&typeof args.domain!=="string")||(args.send_notification_email!==undefined&&typeof args.send_notification_email!=="boolean")))throw Error("INVALID_INPUT");
   if(name==="light_drive_permission_update"&&((typeof args.permission_id!=="string"||!/^[a-zA-Z0-9_-]{1,200}$/.test(args.permission_id))||(args.role!==undefined&&!["reader","commenter","writer"].includes(args.role))||(args.allow_file_discovery!==undefined&&typeof args.allow_file_discovery!=="boolean")||(args.role===undefined&&args.allow_file_discovery===undefined)))throw Error("INVALID_INPUT");
-  if(!env.PANTHEON_LIGHT||typeof env.PANTHEON_LIGHT.lightCall!=="function")throw Error("PANTHEON_LIGHT_BRIDGE_NOT_CONFIGURED");
-  const operation=WRITE_NAMES.has(name)?"pantheon.drive.write":"pantheon.drive.read";
-  let data;try{data=await env.PANTHEON_LIGHT.lightCall({operation,name,args});}catch{throw Error("PANTHEON_DRIVE_UNAVAILABLE");}
-  if(!data||typeof data!=="object"||data.caller!=="LIGHT-BOOKMARK"||data.capability!==operation)throw Error("DRIVE_INVALID_BRIDGE_RESPONSE");
-  if(data.ok!==true)return {ok:false,status:data.status||"DRIVE_UNAVAILABLE",upstream_status:data.upstream_status??null};
-  if(!data.result||typeof data.result!=="object")throw Error("DRIVE_INVALID_BRIDGE_RESPONSE");
-  return {ok:true,result:data.result};
+  const q=(values)=>new URLSearchParams(values).toString();
+  const f=(id)=>"/files/"+encodeURIComponent(id);
+  const fields="fields=id,name,mimeType,parents,size,webViewLink";
+  if(name==="light_drive_roots")return lightDriveRequest(env,"/files?"+q({q:"'root' in parents and trashed = false",fields:"nextPageToken,files(id,name,mimeType)"}));
+  if(name==="light_drive_list"){
+    const filters=["trashed = false"];
+    if(args.folder_id)filters.push("'"+args.folder_id+"' in parents");
+    if(args.query)filters.push("name contains '"+args.query.replaceAll("'","\\'")+"'");
+    return lightDriveRequest(env,"/files?"+q({q:filters.join(" and "),fields:"nextPageToken,files(id,name,mimeType,parents,size,webViewLink)",pageSize:String(args.limit||30),...(args.page_token?{pageToken:args.page_token}:{})}));
+  }
+  if(name==="light_drive_permissions")return lightDriveRequest(env,f(args.file_id)+"/permissions?"+q({fields:"nextPageToken,permissions(id,type,role,emailAddress,domain)",...(args.page_token?{pageToken:args.page_token}:{})}));
+  if(name==="light_drive_file")return lightDriveRequest(env,f(args.file_id)+"?"+fields);
+  if(name==="light_drive_rename")return lightDriveRequest(env,f(args.file_id)+"?"+fields,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({name:args.name})});
+  if(name==="light_drive_copy")return lightDriveRequest(env,f(args.file_id)+"/copy?"+fields,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...(args.name?{name:args.name}:{}),...(args.folder_id?{parents:[args.folder_id]}:{})})});
+  if(name==="light_drive_create"&&args.text===undefined)return lightDriveRequest(env,"/files?"+fields,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:args.name,mimeType:args.mime_type||"text/plain",...(args.folder_id?{parents:[args.folder_id]}:{})})});
+  throw Error("LIGHT_DRIVE_OPERATION_NOT_IMPLEMENTED");
 }
