@@ -1,3 +1,4 @@
+import {documentEvidence,boundedText} from "./document-evidence.js";
 import {lightDriveRequest,lightDriveDownload} from "./direct-drive.js";
 import {unzipSync} from "fflate";
 // LIGHT-owned OAuth credentials remain in Cloudflare secrets; never return them.
@@ -6,7 +7,7 @@ const WRITE_ANNOTATIONS={readOnlyHint:false,destructiveHint:true,idempotentHint:
 export const LIGHT_DRIVE_TOOLS=Object.freeze([
   {name:"light_drive_roots",description:"List root children available to the account authorized by LIGHT-owned Google OAuth. Read-only.",inputSchema:{type:"object",properties:{},additionalProperties:false},annotations:READ_ANNOTATIONS},
   {name:"light_drive_list",description:"List accessible Google Drive files, optionally under a folder or matching a name. Supports pagination. Read-only.",inputSchema:{type:"object",properties:{folder_id:{type:"string",description:"Optional Drive folder ID; omit to search across accessible drives."},query:{type:"string",maxLength:80},limit:{type:"integer",minimum:1,maximum:30},page_token:{type:"string",maxLength:2048}},additionalProperties:false},annotations:READ_ANNOTATIONS},
-  {name:"light_drive_file",description:"Read bounded UTF-8 text from Drive files, or inspect ZIP entries. Read-only; maximum download 4 MiB.",inputSchema:{type:"object",properties:{file_id:{type:"string"},entry:{type:"string",maxLength:240}},required:["file_id"],additionalProperties:false},annotations:READ_ANNOTATIONS},
+  {name:"light_drive_file",description:"Read bounded UTF-8 text from Drive files, or inspect ZIP entries. Read-only; maximum download 4 MiB and returned text 60,000 UTF-16 units.",inputSchema:{type:"object",properties:{file_id:{type:"string"},entry:{type:"string",maxLength:240}},required:["file_id"],additionalProperties:false},annotations:READ_ANNOTATIONS},
   {name:"light_drive_permissions",description:"List a Drive file's existing sharing permissions. Read-only.",inputSchema:{type:"object",properties:{file_id:{type:"string"},page_token:{type:"string",maxLength:2048}},required:["file_id"],additionalProperties:false},annotations:READ_ANNOTATIONS},
   {name:"light_drive_create",description:"Create Google Drive file metadata or a folder without text. Creation with text is not implemented and returns LIGHT_DRIVE_OPERATION_NOT_IMPLEMENTED. Only call on explicit user request.",inputSchema:{type:"object",properties:{folder_id:{type:"string"},name:{type:"string",minLength:1,maxLength:180},text:{type:"string",maxLength:60000},mime_type:{type:"string",enum:["text/plain","text/markdown","text/csv","application/json","application/vnd.google-apps.folder"]}},required:["name"],additionalProperties:false},annotations:WRITE_ANNOTATIONS},
   {name:"light_drive_update",description:"Content updates are not implemented; returns LIGHT_DRIVE_OPERATION_NOT_IMPLEMENTED. Tool name retained for compatibility; do not claim an edit occurred.",inputSchema:{type:"object",properties:{file_id:{type:"string"},text:{type:"string",maxLength:60000}},required:["file_id","text"],additionalProperties:false},annotations:WRITE_ANNOTATIONS},
@@ -51,9 +52,15 @@ export async function runLightDriveTool(name,args={},env={}){
   }
   if(name==="light_drive_permissions")return lightDriveRequest(env,f(args.file_id)+"/permissions?"+q({fields:"nextPageToken,permissions(id,type,role,emailAddress,domain)",...(args.page_token?{pageToken:args.page_token}:{})}));
   if(name==="light_drive_file"){
-    const metadata=await lightDriveRequest(env,f(args.file_id)+"?"+fileFields);
+    const metadata=await lightDriveRequest(env,f(args.file_id)+"?"+fileFields+",version,modifiedTime");
     if(!metadata.ok)return metadata;
     const file=metadata.result;
+    const readText=async(bytes,entry)=>{
+      const body=new TextDecoder("utf-8",{fatal:true}).decode(bytes),text=boundedText(body,60000);
+      const revision=typeof file.version==="string"&&/^\d{1,30}$/.test(file.version)?{kind:"drive_version",value:file.version,binding:"metadata_only"}:null;
+      const evidence=await documentEvidence({provider:"drive",resource:[args.file_id,entry||null],text,total:body.length,revision});
+      return {ok:true,result:{file,...(entry?{entry}:{}),text,truncated:text.length<body.length,evidence}};
+    };
     const zip=file.mimeType==="application/zip"||/\\.zip$/i.test(file.name||"");
     const textFile=(file.mimeType||"").startsWith("text/")||["application/json","application/javascript","application/xml","application/x-sh","application/x-yaml"].includes(file.mimeType)||["js","ts","tsx","jsx","py","go","rs","md","txt","json","yaml","yml","toml","html","css","sh","sql","xml"].includes((file.name||"").split(".").pop().toLowerCase());
     if(!zip&&!textFile)return {ok:false,status:"LIGHT_DRIVE_UNSUPPORTED_FILE_TYPE",file};
@@ -85,11 +92,11 @@ export async function runLightDriveTool(name,args={},env={}){
       const bytes=entries[args.entry];if(!bytes)return {ok:false,status:"LIGHT_DRIVE_ENTRY_NOT_FOUND"};
       if(!/\.(js|ts|tsx|jsx|py|go|rs|md|txt|json|yaml|yml|toml|html|css|sh|sql|xml)$/i.test(args.entry))return {ok:false,status:"LIGHT_DRIVE_UNSUPPORTED_ENTRY_TYPE"};
       if(bytes.includes(0))return {ok:false,status:"LIGHT_DRIVE_BINARY_ENTRY"};
-      return {ok:true,result:{file,entry:args.entry,text:new TextDecoder("utf-8",{fatal:true}).decode(bytes).slice(0,60000),truncated:bytes.length>60000}};
+      try{return await readText(bytes,args.entry);}catch{return {ok:false,status:"LIGHT_DRIVE_NOT_UTF8"};}
     }
     if(args.entry)return {ok:false,status:"LIGHT_DRIVE_NOT_ZIP"};
     if(download.bytes.includes(0))return {ok:false,status:"LIGHT_DRIVE_BINARY_FILE"};
-    try{return {ok:true,result:{file,text:new TextDecoder("utf-8",{fatal:true}).decode(download.bytes).slice(0,60000),truncated:download.bytes.length>60000}};}
+    try{return await readText(download.bytes);}
     catch{return {ok:false,status:"LIGHT_DRIVE_NOT_UTF8"};}
   }
   if(name==="light_drive_rename")return lightDriveRequest(env,f(args.file_id)+"?"+fileFields,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({name:args.name})});

@@ -174,3 +174,13 @@ test('MCP initialization describes direct Drive and unimplemented operations wit
  assert.match(result.instructions,/text creation, content updates, move, share, and permission updates are not implemented/);
  assert.doesNotMatch(result.instructions,/credentials stay in PANTHEON|Drive is available through PANTHEON/);
 });
+
+test('document comparison is advertised and authenticated without provider or D1 access',async()=>{
+ const isolated={LIGHT_BOOKMARK_TOKEN:token,BOOKMARKS:{prepare(){throw Error('unexpected D1 access')}}};
+ const list=await worker.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list'}),isolated);
+ const tool=(await list.json()).result.tools.find(t=>t.name==='light_document_compare');assert.equal(tool.annotations.readOnlyHint,true);
+ const call={jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'light_document_compare',arguments:{before:{},after:{}}}};
+ assert.equal((await worker.fetch(request(call,null),isolated)).status,401);
+ const r=await worker.fetch(request(call),isolated);const result=(await r.json()).result;
+ assert.equal(JSON.parse(result.content[0].text).status,'incomparable');
+});
