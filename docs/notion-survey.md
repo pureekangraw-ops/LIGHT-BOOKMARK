@@ -1,7 +1,7 @@
 # Read-only Notion survey
 
 Uses the existing production `NOTION_API` secret only inside the Worker.
-No Notion mutation endpoints, page bodies in results, logging, or D1 writes.
+No Notion mutation endpoints, page bodies in results/logs, or D1 writes.
 Authentication remains the existing LIGHT MCP bearer.
 
 1. Call `light_notion_search`, repeat with `cursor: next_cursor` until null.
@@ -30,3 +30,20 @@ coverage is a navigation aid, not an independently signed audit receipt.
 
 The pinned Notion API version is 2025-09-03. Read-only POSTs are only `/search`
 and `/data_sources/{id}/query`; all other adapter requests are fixed-origin GETs.
+
+## Diagnostics (Worker v0.8.1)
+
+Failures return a `diagnostic` with correlation `request_id`, adapter version,
+operation class, phase, category, actual HTTP status (null if none), duration,
+and an allowlisted exception type. The same fields are emitted as a structured
+warning to Cloudflare Logs. Request IDs are locally generated correlation IDs,
+not Notion response IDs. No raw error messages/stacks, credentials, headers,
+response bodies, page IDs, cursor values, or page content are logged.
+
+Phases distinguish `runtime_setup`, `request_setup`, `fetch`, `http_response`,
+and `response_parse`. Categories distinguish timeout from an unclassified
+transport exception. HTTP 401 means authentication rejected, 403 permission
+rejected, 404 unavailable or not shared (not proof of absence), and 429 rate
+limited. Existing status/manifest/continuation fields remain compatible.
+Cloudflare invocation logs and traces remain disabled; only application logs
+are persisted. A failed scan with an empty manifest is not an empty workspace.

@@ -44,3 +44,17 @@ entrypoint = "LightBridge"
 # [[previews.d1_databases]]
 # binding = "BOOKMARKS"
 # database_id = "REPLACE_WITH_SEPARATE_PREVIEW_D1_ID"
+
+# Persist only sanitized application diagnostics; do not record invocation details.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = false
+head_sampling_rate = 1
+persist = true
+
+[observability.traces]
+enabled = false

@@ -5,7 +5,7 @@ import { LIGHT_WORK_TOOLS, isLightWorkTool, runLightWorkTool } from "./light-wor
 import { LIGHT_DRIVE_TOOLS, isLightDriveTool, runLightDriveTool } from "./drive-bridge.js";
 // LIGHT Bookmark: a small MCP pointer index over Notion pages.
 // Notion remains the source of truth; this Worker stores only retrieval cues.
-const VERSION = "0.8.0"
+const VERSION = "0.8.1"
 const MCP_VERSION = "2025-11-25";
 const SUPPORTED_MCP_VERSIONS = new Set(["2025-03-26", "2025-06-18", MCP_VERSION]);
 const MAX_LIMIT = 30;

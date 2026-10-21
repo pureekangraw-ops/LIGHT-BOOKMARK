@@ -1,5 +1,6 @@
 // Fixed-origin read-only Notion adapter. Page bodies exist only in request memory.
-// No D1, logging, arbitrary URLs, mutation methods, or upstream error text.
+// No D1, arbitrary URLs, mutation methods, or upstream error text.
+// Error logs contain only allowlisted diagnostic fields; never bodies or credentials.
 const VERSION = '2025-09-03';
 const validId = x => typeof x === 'string' && /^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(x);
 const cursorOK = x => x === undefined || x === null || (typeof x === 'string' && x.length > 0 && x.length <= 1000);
@@ -19,23 +20,40 @@ export const isNotionTool = name => schemas.some(t=>t[0]===name);
 const manifest = x => ({id:x.id,kind:x.object === 'data_source'?'data_source':'page',status:'accessible'});
 const coverage = status => ({status,workspace_complete:false,scope:'Only objects shared with this integration; search indexing may omit objects. Known inaccessible IDs remain gaps. Provide expected page/data source IDs to verify sharing.'});
 
+// Never include error.message/stack/cause, headers, URLs, cursor or response body.
+const errorType = error => ['AbortError','TimeoutError','TypeError','RangeError','Error'].includes(error?.name) ? error.name : 'OtherError';
 async function request(env, path, body, fetcher) {
- // Only call sites below construct path; POST is restricted to read-only search/query.
+ const started=Date.now();
+ const base={event:'light_notion_request_error',request_id:crypto.randomUUID(),adapter_version:'0.8.1',operation:path==='/search'?'search':path.startsWith('/pages/')?'page':path.startsWith('/blocks/')?'blocks':path.startsWith('/databases/')?'database':'data_source'};
+ const failed=(error,phase,category,http_status=null,exception=null,extra={})=>{
+  const diagnostic={...base,phase,category,http_status,elapsed_ms:Date.now()-started,...(exception?{error_type:errorType(exception)}:{})};
+  console.warn(JSON.stringify(diagnostic));
+  return {error,http_status,diagnostic,...extra};
+ };
+ let signal,options;
+ try {signal=AbortSignal.timeout(8000);}
+ catch(error){return failed('upstream_unavailable','runtime_setup','runtime_setup_error',null,error);}
+ try {
+  options={method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+env.NOTION_API,'Notion-Version':VERSION,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'error',signal};
+  // Validate locally so malformed request setup is distinct from transport errors.
+  new Request('https://api.notion.com/v1'+path,options);
+ } catch(error){return failed('upstream_unavailable','request_setup','request_setup_error',null,error);}
  let r;
- try {r=await fetcher('https://api.notion.com/v1'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+env.NOTION_API,'Notion-Version':VERSION,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'error',signal:AbortSignal.timeout(8000)});}
- catch {return {error:'upstream_unavailable'};}
+ try {r=await fetcher('https://api.notion.com/v1'+path,options);}
+ catch(error){return failed('upstream_unavailable','fetch',signal.aborted || ['AbortError','TimeoutError'].includes(error?.name)?'timeout':'transport_exception',null,error);}
  if(!r.ok){
-  if([401,403,404].includes(r.status))return {error:'inaccessible',http_status:r.status};
-  if(r.status===429){const retry=Number(r.headers.get('Retry-After'));return {error:'rate_limited',retry_after_seconds:Number.isFinite(retry)&&retry>0?Math.ceil(retry):1};}
-  return {error:'upstream_error',http_status:r.status};
+  if([401,403,404].includes(r.status))return failed('inaccessible','http_response',r.status===401?'authentication':r.status===403?'permission_denied':'not_found_or_not_shared',r.status);
+  if(r.status===429){const retry=Number(r.headers.get('Retry-After'));return failed('rate_limited','http_response','rate_limited',429,null,{retry_after_seconds:Number.isFinite(retry)&&retry>0?Math.ceil(retry):1});}
+  return failed('upstream_error','http_response','upstream_http_error',r.status);
  }
- try {return {data:await r.json()};} catch {return {error:'invalid_response'};}
+ try {return {data:await r.json()};}
+ catch(error){return failed('invalid_response','response_parse','invalid_json',r.status,error);}
 }
 function listData(data){
  if(!Array.isArray(data?.results) || typeof data.has_more!=='boolean' || (data.has_more && (!cursorOK(data.next_cursor)||!data.next_cursor)))return null;
  return data;
 }
-function errorResult(r,id,kind){return {status:r.error,manifest:id?[{id,kind,status:r.error,http_status:r.http_status}]:[],coverage:coverage('partial'),...(r.retry_after_seconds?{retry_after_seconds:r.retry_after_seconds}:{})};}
+function errorResult(r,id,kind){return {status:r.error,...(r.diagnostic?{diagnostic:r.diagnostic,http_status:r.http_status}:{}),manifest:id?[{id,kind,status:r.error,http_status:r.http_status}]:[],coverage:coverage('partial'),...(r.retry_after_seconds?{retry_after_seconds:r.retry_after_seconds}:{})};}
 
 export async function runNotionTool(name,args={},env={},fetcher=fetch){
  need(isNotionTool(name));
@@ -60,7 +78,7 @@ export async function runNotionTool(name,args={},env={},fetcher=fetch){
   need(only(c,['phase','page_id','tasks','seen','inaccessible','gaps']) && ['page','blocks'].includes(c.phase) && c.page_id===args.id && Array.isArray(c.tasks)&&c.tasks.length<=1000 && c.tasks.every(t=>only(t,['id','cursor'])&&validId(t.id)&&cursorOK(t.cursor)) && Array.isArray(c.seen)&&c.seen.length<=10000&&c.seen.every(x=>typeof x==='string'&&x.length<=1100) && Number.isSafeInteger(c.inaccessible)&&c.inaccessible>=0 && Number.isSafeInteger(c.gaps)&&c.gaps>=0);
  }
  let tasks=c?c.tasks.map(t=>({...t})):[{id:args.id}];const seen=new Set(c?.seen||[]);let inaccessible=c?.inaccessible||0,gaps=c?.gaps||0;
- const entries=[];let used=0,status='ok',retry;
+ const entries=[];let used=0,status='ok',retry,diagnostic;
  if(!c || c.phase==='page'){
   const r=await request(env,'/pages/'+args.id,undefined,fetcher);used++;
   if(r.error){if(r.error==='inaccessible')return errorResult(r,args.id,'page');status=r.error;retry=r.retry_after_seconds;
@@ -73,7 +91,8 @@ export async function runNotionTool(name,args={},env={},fetcher=fetch){
   const url='/blocks/'+t.id+'/children?page_size=100'+(t.cursor?'&start_cursor='+encodeURIComponent(t.cursor):'');
   const r=await request(env,url,undefined,fetcher);used++;
   if(r.error){
-   entries.push({id:t.id,kind:'block_children',status:r.error,http_status:r.http_status});
+   diagnostic=r.diagnostic;
+   entries.push({id:t.id,kind:'block_children',status:r.error,http_status:r.http_status,...(r.diagnostic?{diagnostic:r.diagnostic}:{})});
    if(r.error==='inaccessible'){inaccessible++;seen.add(key);continue;}
    tasks.unshift(t);status=r.error;retry=r.retry_after_seconds;break;
   }
@@ -95,5 +114,5 @@ export async function runNotionTool(name,args={},env={},fetcher=fetch){
   if(data.has_more){if(data.next_cursor===t.cursor){gaps++;}else enqueue({id:t.id,cursor:data.next_cursor});}
   if(seen.size>=10000){gaps++;status='limit_reached';break;}
  }
- return {status,manifest:entries,requests:used,...(retry?{retry_after_seconds:retry}:{}),coverage:{...coverage(tasks.length||inaccessible||gaps||status!=='ok'?'partial':'complete_for_requested_page'),inaccessible,gaps},continuation:tasks.length&&seen.size<10000?{phase:'blocks',page_id:args.id,tasks,seen:[...seen],inaccessible,gaps}:null};
+ return {status,...(diagnostic?{diagnostic,http_status:diagnostic.http_status}:{}),manifest:entries,requests:used,...(retry?{retry_after_seconds:retry}:{}),coverage:{...coverage(tasks.length||inaccessible||gaps||status!=='ok'?'partial':'complete_for_requested_page'),inaccessible,gaps},continuation:tasks.length&&seen.size<10000?{phase:'blocks',page_id:args.id,tasks,seen:[...seen],inaccessible,gaps}:null};
 }
