@@ -40,7 +40,7 @@ export async function runLightDriveTool(name,args={},env={}){
   if(name==="light_drive_permission_update"&&((typeof args.permission_id!=="string"||!/^[a-zA-Z0-9_-]{1,200}$/.test(args.permission_id))||(args.role!==undefined&&!["reader","commenter","writer"].includes(args.role))||(args.allow_file_discovery!==undefined&&typeof args.allow_file_discovery!=="boolean")||(args.role===undefined&&args.allow_file_discovery===undefined)))throw Error("INVALID_INPUT");
   const q=(values)=>new URLSearchParams(values).toString();
   const f=(id)=>"/files/"+encodeURIComponent(id);
-  const fields="fields=id,name,mimeType,parents,size,webViewLink";
+  const fileFields="fields=id,name,mimeType,parents,size,webViewLink";
   if(name==="light_drive_roots")return lightDriveRequest(env,"/files?"+q({q:"'root' in parents and trashed = false",fields:"nextPageToken,files(id,name,mimeType)"}));
   if(name==="light_drive_list"){
     const filters=["trashed = false"];
@@ -49,8 +49,8 @@ export async function runLightDriveTool(name,args={},env={}){
     return lightDriveRequest(env,"/files?"+q({q:filters.join(" and "),fields:"nextPageToken,files(id,name,mimeType,parents,size,webViewLink)",pageSize:String(args.limit||30),...(args.page_token?{pageToken:args.page_token}:{})}));
   }
   if(name==="light_drive_permissions")return lightDriveRequest(env,f(args.file_id)+"/permissions?"+q({fields:"nextPageToken,permissions(id,type,role,emailAddress,domain)",...(args.page_token?{pageToken:args.page_token}:{})}));
-  if(name==="light_drive_file")return lightDriveRequest(env,f(args.file_id)+"?"+fields);
-  if(name==="light_drive_rename")return lightDriveRequest(env,f(args.file_id)+"?"+fields,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({name:args.name})});
+  if(name==="light_drive_file")return lightDriveRequest(env,f(args.file_id)+"?"+fileFields);
+  if(name==="light_drive_rename")return lightDriveRequest(env,f(args.file_id)+"?"+fileFields,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({name:args.name})});
   if(name==="light_drive_copy")return lightDriveRequest(env,f(args.file_id)+"/copy?"+fields,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...(args.name?{name:args.name}:{}),...(args.folder_id?{parents:[args.folder_id]}:{})})});
   if(name==="light_drive_create"&&args.text===undefined)return lightDriveRequest(env,"/files?"+fields,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:args.name,mimeType:args.mime_type||"text/plain",...(args.folder_id?{parents:[args.folder_id]}:{})})});
   throw Error("LIGHT_DRIVE_OPERATION_NOT_IMPLEMENTED");
