@@ -1,10 +1,11 @@
+import { NOTION_TOOLS, isNotionTool, runNotionTool } from "./notion-read.js";
 import { pantheonHealth } from "./pantheon-health.js";
 import { PROVIDER_TOOLS, isProviderTool, runProviderTool } from "./provider-read.js";
 import { LIGHT_WORK_TOOLS, isLightWorkTool, runLightWorkTool } from "./light-work.js";
 import { LIGHT_DRIVE_TOOLS, isLightDriveTool, runLightDriveTool } from "./drive-bridge.js";
 // LIGHT Bookmark: a small MCP pointer index over Notion pages.
 // Notion remains the source of truth; this Worker stores only retrieval cues.
-const VERSION = "0.7.0"
+const VERSION = "0.8.0"
 const MCP_VERSION = "2025-11-25";
 const SUPPORTED_MCP_VERSIONS = new Set(["2025-03-26", "2025-06-18", MCP_VERSION]);
 const MAX_LIMIT = 30;
@@ -12,6 +13,7 @@ const MAX_QUERY_LENGTH = 100;
 const MAX_CUE_LENGTH = 500;
 
 const TOOLS = [
+  ...NOTION_TOOLS,
   ...PROVIDER_TOOLS,
   ...LIGHT_WORK_TOOLS,
   ...LIGHT_DRIVE_TOOLS,
@@ -218,6 +220,7 @@ async function saveBookmark(db, args) {
 
 async function callTool(db, name, args, env) {
   try {
+    if (isNotionTool(name)) return toolResult(await runNotionTool(name, args, env));
     if (isProviderTool(name)) return toolResult(await runProviderTool(name, args, env));
     if (isLightWorkTool(name)) return toolResult(await runLightWorkTool(name, args, env));
     if (isLightDriveTool(name)) return toolResult(await runLightDriveTool(name, args, env));

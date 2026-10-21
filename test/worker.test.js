@@ -157,3 +157,11 @@ test("save rejects non-Notion URLs and mismatched page ids", async () => {
   );
   assert.match((await mismatch.json()).result.content[0].text, /does not match/);
 });
+test('Notion tools are advertised and missing secret fails without D1 access',async()=>{
+ const isolated={LIGHT_BOOKMARK_TOKEN:token,BOOKMARKS:{prepare(){assert.fail('Notion must not access D1');}}};
+ const response=await worker.fetch(request({jsonrpc:'2.0',id:1,method:'tools/list'}),isolated);
+ const names=(await response.json()).result.tools.map(t=>t.name);
+ for(const name of ['light_notion_search','light_notion_data_source','light_notion_database','light_notion_page'])assert.ok(names.includes(name));
+ const called=await worker.fetch(request({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'light_notion_search',arguments:{}}}),isolated);
+ const result=(await called.json()).result;assert.equal(result.isError,true);assert.equal(result.content[0].text,'NOTION_NOT_CONFIGURED');
+});
