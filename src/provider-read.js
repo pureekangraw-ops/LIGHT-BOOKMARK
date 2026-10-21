@@ -48,7 +48,7 @@ function status(env){
   return {read_only:true,github:{ready:!!list(env.LIGHT_GITHUB_REPOS).size,mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
     gitlab:{ready:!!list(env.LIGHT_GITLAB_PROJECTS).size,mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:"PANTHEON_LIGHT_TASK"},
     cloudflare:{ready:!!(env.LIGHT_CF_READ_TOKEN&&env.LIGHT_CF_ACCOUNT_ID&&list(env.LIGHT_CF_WORKERS).size)},
-    drive:{ready:false,bridge_bound:!!env.PANTHEON_LIGHT,mode:"PANTHEON_DRIVE_READ_REQUIRES_CHECK"},
+    drive:{ready:!!(env.LIGHT_GOOGLE_CLIENT_ID&&env.LIGHT_GOOGLE_CLIENT_SECRET&&(env.LIGHT_GOOGLE_REFRESH_TOKEN||env.GOOGLE_REFRESH_TOKEN)),mode:"LIGHT_DIRECT_GOOGLE_OAUTH",note:"Credentials present; live API access must be tested separately."},
     pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
 }
 export async function runProviderTool(name,args={},env={},fetcher=fetch){
