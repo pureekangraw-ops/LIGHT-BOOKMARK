@@ -55,7 +55,7 @@ export async function runLightDriveTool(name,args={},env={}){
     if(!metadata.ok)return metadata;
     const file=metadata.result;
     const zip=file.mimeType==="application/zip"||/\\.zip$/i.test(file.name||"");
-    const textFile=/^(text\\/|application\\/(json|javascript|xml|x-sh|x-yaml))/.test(file.mimeType||"")||/\\.(js|ts|tsx|jsx|py|go|rs|md|txt|json|yaml|yml|toml|html|css|sh|sql|xml)$/i.test(file.name||"");
+    const textFile=(file.mimeType||"").startsWith("text/")||["application/json","application/javascript","application/xml","application/x-sh","application/x-yaml"].includes(file.mimeType)||["js","ts","tsx","jsx","py","go","rs","md","txt","json","yaml","yml","toml","html","css","sh","sql","xml"].includes((file.name||"").split(".").pop().toLowerCase());
     if(!zip&&!textFile)return {ok:false,status:"LIGHT_DRIVE_UNSUPPORTED_FILE_TYPE",file};
     const download=await lightDriveDownload(env,args.file_id);
     if(!download.ok)return download;
