@@ -72,3 +72,44 @@ test("upstream auth errors do not echo response body",async()=>{
   await assert.rejects(runProviderTool("light_github_repo",{repo:"pureekangraw-ops/LIGHT-BOOKMARK"},env,
     async()=>response({token:"secret-from-upstream"},403)),/UPSTREAM_HTTP_403/);
 });
+
+test('connection status distinguishes configuration from unverified live access without networking', async()=>{
+  const configured={...env,LIGHT_GITHUB_READ_TOKEN:'synthetic-github-secret',LIGHT_GITLAB_READ_TOKEN:'synthetic-gitlab-secret',LIGHT_GOOGLE_CLIENT_ID:'synthetic-client',LIGHT_GOOGLE_CLIENT_SECRET:'synthetic-client-secret',LIGHT_GOOGLE_REFRESH_TOKEN:'synthetic-refresh'};
+  const value=await runProviderTool('light_connections_status',{},configured,()=>assert.fail('status must not fetch'));
+  assert.equal(value.configuration_only,true);
+  assert.equal(value.live_access_verified,false);
+  for(const provider of ['github','gitlab','cloudflare','drive']){
+    assert.equal(value[provider].ready,true);
+    assert.equal(value[provider].configured,true);
+    assert.equal(value[provider].status,'configured_unverified');
+    assert.deepEqual(value[provider].missing_configuration,[]);
+  }
+  assert.doesNotMatch(JSON.stringify(value),/synthetic-|restricted-test-token/);
+});
+test('connection status lists canonical missing configuration names without using generic aliases',async()=>{
+  const value=await runProviderTool('light_connections_status',{}, {
+    CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_API_TOKEN:'synthetic-old-cf-token',
+    GITHUB_TOKEN:'synthetic-generic-github',GITLAB_TOKEN:'synthetic-generic-gitlab',
+    GOOGLE_CLIENT_ID:'synthetic-generic-client',GOOGLE_CLIENT_SECRET:'synthetic-generic-secret',
+  },()=>assert.fail('status must not fetch'));
+  assert.deepEqual(value.github.missing_configuration,['LIGHT_GITHUB_REPOS']);
+  assert.deepEqual(value.gitlab.missing_configuration,['LIGHT_GITLAB_PROJECTS']);
+  assert.deepEqual(value.cloudflare.missing_configuration,['LIGHT_CF_READ_TOKEN','LIGHT_CF_ACCOUNT_ID','LIGHT_CF_WORKERS']);
+  assert.deepEqual(value.drive.missing_configuration,['LIGHT_GOOGLE_CLIENT_ID','LIGHT_GOOGLE_CLIENT_SECRET','LIGHT_GOOGLE_REFRESH_TOKEN or GOOGLE_REFRESH_TOKEN']);
+  assert.equal(value.github.mode,'public_only');
+  assert.equal(value.gitlab.mode,'public_only');
+  for(const provider of ['github','gitlab','cloudflare','drive']){
+    assert.equal(value[provider].ready,false);
+    assert.equal(value[provider].configured,false);
+    assert.equal(value[provider].status,'not_configured');
+  }
+  assert.doesNotMatch(JSON.stringify(value),/synthetic-/);
+});
+test('connection status reports an invalid Cloudflare account ID without returning its value',async()=>{
+  const value=await runProviderTool('light_connections_status',{}, {...env,LIGHT_CF_ACCOUNT_ID:'not-an-account-id'},()=>assert.fail('status must not fetch'));
+  assert.equal(value.cloudflare.ready,false);
+  assert.equal(value.cloudflare.configured,false);
+  assert.equal(value.cloudflare.status,'invalid_configuration');
+  assert.deepEqual(value.cloudflare.invalid_configuration,['LIGHT_CF_ACCOUNT_ID']);
+  assert.doesNotMatch(JSON.stringify(value),/not-an-account-id|restricted-test-token/);
+});

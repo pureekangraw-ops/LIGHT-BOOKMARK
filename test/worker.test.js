@@ -165,3 +165,12 @@ test('Notion tools are advertised and missing secret fails without D1 access',as
  const called=await worker.fetch(request({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'light_notion_search',arguments:{}}}),isolated);
  const result=(await called.json()).result;assert.equal(result.isError,true);assert.equal(result.content[0].text,'NOTION_NOT_CONFIGURED');
 });
+
+test('MCP initialization describes direct Drive and unimplemented operations without changing identity',async()=>{
+ const response=await worker.fetch(request({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25'}}),env);
+ const {result}=await response.json();
+ assert.equal(result.serverInfo.name,'light-bookmark');
+ assert.match(result.instructions,/directly.*LIGHT-owned OAuth/);
+ assert.match(result.instructions,/text creation, content updates, move, share, and permission updates are not implemented/);
+ assert.doesNotMatch(result.instructions,/credentials stay in PANTHEON|Drive is available through PANTHEON/);
+});
