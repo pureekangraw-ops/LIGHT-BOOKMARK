@@ -31,3 +31,16 @@ service = "phatheon-workhub"
 binding = "PANTHEON_LIGHT"
 service = "phatheon-workhub"
 entrypoint = "LightBridge"
+
+# Preview uses separate variables and a dedicated test database.
+# Set a real non-production D1 database ID before running wrangler preview.
+# Never copy the production BOOKMARKS database ID into previews.
+#
+# [previews.vars]
+# LIGHT_GITHUB_REPOS = "pureekangraw-ops/LIGHT-BOOKMARK"
+# LIGHT_GITLAB_PROJECTS = "yggmetro-group1/factory-district"
+# LIGHT_CF_WORKERS = "light-bookmark"
+#
+# [[previews.d1_databases]]
+# binding = "BOOKMARKS"
+# database_id = "REPLACE_WITH_SEPARATE_PREVIEW_D1_ID"
