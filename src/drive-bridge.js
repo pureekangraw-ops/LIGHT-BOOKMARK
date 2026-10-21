@@ -83,6 +83,7 @@ export async function runLightDriveTool(name,args={},env={}){
         return {ok:true,result:{file,entries:names,entry_count:names.length}};
       }
       const bytes=entries[args.entry];if(!bytes)return {ok:false,status:"LIGHT_DRIVE_ENTRY_NOT_FOUND"};
+      if(!/\.(js|ts|tsx|jsx|py|go|rs|md|txt|json|yaml|yml|toml|html|css|sh|sql|xml)$/i.test(args.entry))return {ok:false,status:"LIGHT_DRIVE_UNSUPPORTED_ENTRY_TYPE"};
       if(bytes.includes(0))return {ok:false,status:"LIGHT_DRIVE_BINARY_ENTRY"};
       return {ok:true,result:{file,entry:args.entry,text:new TextDecoder("utf-8",{fatal:true}).decode(bytes).slice(0,60000),truncated:bytes.length>60000}};
     }
