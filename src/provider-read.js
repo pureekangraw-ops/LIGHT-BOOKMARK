@@ -3,7 +3,7 @@
 const MAX_TEXT = 30000;
 const MAX_BODY = 120000;
 const schemas = [
-  { name:"light_connections_status", description:"Show which LIGHT read-only connections are configured; no secrets are returned.", inputSchema:{type:"object",properties:{},additionalProperties:false} },
+  { name:"light_connections_status", description:"Inspect local connection configuration only, not live provider access. Reports missing configuration names without exposing secrets or testing credentials.", inputSchema:{type:"object",properties:{},additionalProperties:false} },
   { name:"light_github_repo", description:"Read a GitHub repository's basic metadata. Repository must be explicitly allowlisted for LIGHT.", inputSchema:{type:"object",properties:{repo:{type:"string"}},required:["repo"],additionalProperties:false} },
   { name:"light_github_file", description:"Read one UTF-8 GitHub source file from an allowlisted repository. Returns at most 30 KB of text; never executes code.", inputSchema:{type:"object",properties:{repo:{type:"string"},path:{type:"string"},ref:{type:"string"}},required:["repo","path"],additionalProperties:false} },
   { name:"light_gitlab_project", description:"Read a GitLab project's basic metadata. Project must be explicitly allowlisted for LIGHT.", inputSchema:{type:"object",properties:{project:{type:"string"}},required:["project"],additionalProperties:false} },
@@ -27,8 +27,11 @@ function need(cond,msg){if(!cond)throw Error(msg);}
 function auth(token){return token?{Authorization:"Bearer "+token}:{};}
 async function requestData(url,headers,asText=false,fetcher=fetch){
   let response;
-  try {response=await fetcher(url,{method:"GET",headers,redirect:"error",signal:AbortSignal.timeout(8000)});}
+  try {response=await fetcher(url,{method:"GET",headers,redirect:"manual",signal:AbortSignal.timeout(8000)});}
   catch {throw Error("UPSTREAM_UNAVAILABLE");}
+  // Workers does not implement redirect:"error". Never follow credential-bearing
+  // requests, and reject every 3xx before reading a body or Location header.
+  if(response.status>=300&&response.status<400)throw Error("UPSTREAM_REDIRECT_REJECTED");
   if(!response.ok)throw Error("UPSTREAM_HTTP_"+response.status);
   if(Number(response.headers.get("content-length")||0)>MAX_BODY)throw Error("UPSTREAM_TOO_LARGE");
   let body;
@@ -44,11 +47,18 @@ const fileArgs = (a,key,envList) => {
 const repoArgs = (a,key,envList) => {
   need(only(a,[key]) && id(a[key]),"INVALID_INPUT");allow(a[key],envList);
 };
+function configuration(required,invalid=[]){
+  const missing=required.filter(([,present])=>!present).map(([name])=>name);
+  const configured=missing.length===0&&invalid.length===0;
+  return {ready:configured,configured,status:invalid.length?"invalid_configuration":configured?"configured_unverified":"not_configured",missing_configuration:missing,...(invalid.length?{invalid_configuration:invalid}:{})};
+}
 function status(env){
-  return {read_only:true,github:{ready:!!list(env.LIGHT_GITHUB_REPOS).size,mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
-    gitlab:{ready:!!list(env.LIGHT_GITLAB_PROJECTS).size,mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:"PANTHEON_LIGHT_TASK"},
-    cloudflare:{ready:!!(env.LIGHT_CF_READ_TOKEN&&env.LIGHT_CF_ACCOUNT_ID&&list(env.LIGHT_CF_WORKERS).size)},
-    drive:{ready:!!(env.LIGHT_GOOGLE_CLIENT_ID&&env.LIGHT_GOOGLE_CLIENT_SECRET&&(env.LIGHT_GOOGLE_REFRESH_TOKEN||env.GOOGLE_REFRESH_TOKEN)),mode:"LIGHT_DIRECT_GOOGLE_OAUTH",note:"Credentials present; live API access must be tested separately."},
+  return {read_only:true,configuration_only:true,live_access_verified:false,
+    note:"ready/configured describe local configuration only, not verified provider access. write_actions describes this status tool, not other tools.",
+    github:{...configuration([["LIGHT_GITHUB_REPOS",list(env.LIGHT_GITHUB_REPOS).size]]),mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
+    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:"PANTHEON_LIGHT_TASK"},
+    cloudflare:{...configuration([["LIGHT_CF_READ_TOKEN",env.LIGHT_CF_READ_TOKEN],["LIGHT_CF_ACCOUNT_ID",env.LIGHT_CF_ACCOUNT_ID],["LIGHT_CF_WORKERS",list(env.LIGHT_CF_WORKERS).size]],env.LIGHT_CF_ACCOUNT_ID&&!/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID)?["LIGHT_CF_ACCOUNT_ID"]:[])},
+    drive:{...configuration([["LIGHT_GOOGLE_CLIENT_ID",env.LIGHT_GOOGLE_CLIENT_ID],["LIGHT_GOOGLE_CLIENT_SECRET",env.LIGHT_GOOGLE_CLIENT_SECRET],["LIGHT_GOOGLE_REFRESH_TOKEN or GOOGLE_REFRESH_TOKEN",env.LIGHT_GOOGLE_REFRESH_TOKEN||env.GOOGLE_REFRESH_TOKEN]]),mode:"LIGHT_DIRECT_GOOGLE_OAUTH",note:"Local configuration only; live API access, OAuth scopes and file permissions must be tested separately."},
     pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
 }
 export async function runProviderTool(name,args={},env={},fetcher=fetch){

@@ -289,7 +289,7 @@ async function handleMcp(request, env) {
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "light-bookmark", version: VERSION },
           instructions:
-            "LIGHT Bookmark stores Notion pointers, exposes allowlisted read-only GitHub/GitLab/Cloudflare tools, and prepares PANTHEON tasks through the LIGHT-only Bridge. Factory execution and external writes require owner authorization. Google Drive is available through PANTHEON capabilities pantheon.drive.read and pantheon.drive.write; OAuth credentials stay in PANTHEON. LIGHT exposes read, create, edit, move, copy, share, and permission-update tools, but no delete operation. Only make Drive changes when the user requests them.",
+            "LIGHT Bookmark stores Notion pointers, exposes allowlisted read-only GitHub/GitLab/Cloudflare tools, and prepares PANTHEON tasks through the LIGHT-only Bridge. Factory execution and external writes require owner authorization. Google Drive is called directly using LIGHT-owned OAuth credentials held only in LIGHT Worker secrets, not through PANTHEON. Drive supports roots/list/file/permissions reads, metadata-only creation without text, rename, and copy; text creation, content updates, move, share, and permission updates are not implemented. No delete operation is exposed. Only make implemented Drive changes when the user requests them. light_connections_status reports local configuration, not verified live access.",
         },
       },
       200,

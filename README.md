@@ -61,12 +61,21 @@ work. Set `LIGHT_CF_ACCOUNT_ID` and **secret** `LIGHT_CF_READ_TOKEN` with
 Cloudflare Workers Scripts read permission to enable Worker deployment inspection.
 Never copy GO Brain, WorkHub, or Factory tokens into LIGHT.
 
-**Google Drive:** LIGHT uses PANTHEON capabilities `pantheon.drive.read` and
-`pantheon.drive.write`. PANTHEON holds the OAuth credentials; LIGHT never receives
-tokens. Access covers files visible to the authorized Google account. LIGHT may
-read, create, edit, rename, move, copy, share, or update permissions when the user
-requests it. No file-delete or permission-delete operation is exposed; the OAuth
-scope itself can still have broader authority.
+**Configuration diagnostics:** `light_connections_status` does not call providers.
+`ready` (retained for compatibility) and `configured` mean local configuration is
+present, **not** that credentials, scopes, sharing, or live API access work. Each
+provider reports `configured_unverified`, `not_configured`, or
+`invalid_configuration`, plus missing/invalid configuration **names only**.
+Cloudflare expects exactly `LIGHT_CF_ACCOUNT_ID`, `LIGHT_CF_READ_TOKEN`, and
+`LIGHT_CF_WORKERS`; generic or old provider names are not fallback credentials.
+Do not copy, rename, or broaden credentials automatically to resolve a missing name.
+
+**Google Drive:** LIGHT calls Google directly using LIGHT-owned OAuth secrets.
+PANTHEON and GO Hub are not in the Drive data path. Implemented operations are
+reads, metadata-only creation without text, rename, and copy. Text creation,
+content updates, move, share, and permission updates are advertised for compatibility
+but are **not implemented**. See the capability table below. No delete operation is
+exposed; the OAuth scope itself can still have broader authority.
 
 ### Connect Notion Agent
 
@@ -111,31 +120,49 @@ execution with the authorized channel. Do not confuse queued with executed.
 
 Dependency: https://github.com/pureekangraw-ops/Pantheon-WorkHub/pull/13
 
-## Account-wide Google Drive via PANTHEON (proposed)
+## Direct Google Drive: current capabilities
 
-LIGHT advertises `light_drive_roots`, `light_drive_list`, `light_drive_file`,
-`light_drive_permissions`, `light_drive_create`, `light_drive_update`,
-`light_drive_rename`, `light_drive_move`, `light_drive_copy`, `light_drive_share`,
-and `light_drive_permission_update`. These invoke the existing `PANTHEON_LIGHT`
-Service Binding using `pantheon.drive.read` or `pantheon.drive.write`. Google OAuth
-credentials stay in PANTHEON; they are never stored by, sent to, or returned to
-LIGHT.
+The existing tool names remain available, but availability in `tools/list` is not
+proof that every operation is implemented or that the connection works live.
 
-The connection can access all files visible to the Google account authorized in
-PANTHEON; no folder allowlist is used. Reads require `drive.readonly` or `drive`;
-writes require the full `drive` scope. Google classifies these broad scopes as
-restricted; user consent, app verification, or a security assessment may be
-required. [Google Drive API scopes](https://developers.google.com/drive/api/guides/about-auth)
+| Tool | Current implementation |
+| --- | --- |
+| `light_drive_roots` | List root children; read-only |
+| `light_drive_list` | List/search accessible files with pagination; read-only |
+| `light_drive_file` | Read bounded UTF-8 text or inspect ZIP entries; read-only |
+| `light_drive_permissions` | List existing permissions with pagination; read-only |
+| `light_drive_create` | Create file metadata or a folder **without `text`**; text creation is not implemented |
+| `light_drive_rename`, `light_drive_copy` | Implemented mutations; require explicit user request |
+| `light_drive_update`, `light_drive_move`, `light_drive_share`, `light_drive_permission_update` | Not implemented; valid calls return `LIGHT_DRIVE_OPERATION_NOT_IMPLEMENTED` without provider requests |
 
-The tool layer has no file-delete or permission-delete operation and never sends
-an HTTP DELETE request. It supports file/folder creation, supported-text edits,
-rename, move, copy, adding user/group/domain/anyone permissions, and updating a
-permission role or link-discovery setting. Ownership transfer is not exposed.
-Sharing can expose content externally; only invoke it when the user explicitly
-requests sharing. Reads and writes are bounded, and large lists use pagination.
-The `drive` OAuth token itself still has wider authority than this tool layer.
+OAuth credentials remain in the LIGHT Worker, never MCP responses or GitHub.
+The code expects `LIGHT_GOOGLE_CLIENT_ID`, `LIGHT_GOOGLE_CLIENT_SECRET`, and
+`LIGHT_GOOGLE_REFRESH_TOKEN` (or the already-supported `GOOGLE_REFRESH_TOKEN`).
+This documents existing names; it does not change aliases, secrets, OAuth grants,
+scopes, or permissions. No folder allowlist is enforced by this adapter: access is
+limited by the existing Google grant and file permissions, which must be checked
+separately. Do not expand that access without owner approval.
 
-Both repositories' PRs must be reviewed and deployed together, then tested with
-the existing Google OAuth grant and staging-safe files. Refresh-token validity
-and OAuth scope remain unverified until runtime readback succeeds. Do not deploy
-to production before the scope and preview environment are verified.
+No file-delete, permission-delete, or ownership-transfer tool is exposed. Only
+perform implemented mutations when the user explicitly requests them. A local
+configuration check or synthetic test does not establish refresh-token validity,
+OAuth scopes, file access, or successful production deployment.
+
+## Provider runtime regression tests
+
+Run `npm install --ignore-scripts --no-audit --no-fund`, then `npm test`.
+`test/provider-runtime.test.js` uses native workerd `fetch`, not a response-only
+fetch stub. All outbound traffic is intercepted locally, including attempted
+redirect destinations; tests use synthetic credentials and contact no providers.
+Coverage includes all five GitHub/GitLab/Cloudflare readers, JSON and text paths,
+3xx rejection without forwarding credentials, sanitized HTTP errors, and GitLab's
+public-only authorized-route response.
+
+Workers does not support `redirect: "error"`; the adapter uses `manual` and
+rejects every 3xx before inspecting a body or Location header. See the
+[Workers Request API](https://developers.cloudflare.com/workers/runtime-apis/request/).
+The repository's pinned Miniflare runtime supports compatibility date `2026-08-06`,
+which these tests use. This is not production equivalence to the deployed
+`2026-10-10` compatibility date, and does not replace a separately authorized
+staging/runtime check. No provider permissions, allowlists, or credentials are
+changed by this fix.
