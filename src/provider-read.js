@@ -1,3 +1,4 @@
+import {documentEvidence,boundedText} from "./document-evidence.js";
 // Read-only connectors for LIGHT. No provider credential is shared with GO Brain.
 // All upstream origins are fixed; repositories, projects, and scripts are allowlisted.
 const MAX_TEXT = 30000;
@@ -5,9 +6,9 @@ const MAX_BODY = 120000;
 const schemas = [
   { name:"light_connections_status", description:"Inspect local connection configuration only, not live provider access. Reports missing configuration names without exposing secrets or testing credentials.", inputSchema:{type:"object",properties:{},additionalProperties:false} },
   { name:"light_github_repo", description:"Read a GitHub repository's basic metadata. Repository must be explicitly allowlisted for LIGHT.", inputSchema:{type:"object",properties:{repo:{type:"string"}},required:["repo"],additionalProperties:false} },
-  { name:"light_github_file", description:"Read one UTF-8 GitHub source file from an allowlisted repository. Returns at most 30 KB of text; never executes code.", inputSchema:{type:"object",properties:{repo:{type:"string"},path:{type:"string"},ref:{type:"string"}},required:["repo","path"],additionalProperties:false} },
+  { name:"light_github_file", description:"Read one UTF-8 GitHub source file from an allowlisted repository. Returns at most 30,000 UTF-16 units of text; never executes code.", inputSchema:{type:"object",properties:{repo:{type:"string"},path:{type:"string"},ref:{type:"string"}},required:["repo","path"],additionalProperties:false} },
   { name:"light_gitlab_project", description:"Read a GitLab project's basic metadata. Project must be explicitly allowlisted for LIGHT.", inputSchema:{type:"object",properties:{project:{type:"string"}},required:["project"],additionalProperties:false} },
-  { name:"light_gitlab_file", description:"Read one UTF-8 GitLab file from an allowlisted project. Returns at most 30 KB of text.", inputSchema:{type:"object",properties:{project:{type:"string"},path:{type:"string"},ref:{type:"string"}},required:["project","path"],additionalProperties:false} },
+  { name:"light_gitlab_file", description:"Read one UTF-8 GitLab file from an allowlisted project. Returns at most 30,000 UTF-16 units of text.", inputSchema:{type:"object",properties:{project:{type:"string"},path:{type:"string"},ref:{type:"string"}},required:["project","path"],additionalProperties:false} },
   { name:"light_cloudflare_worker", description:"Read deployment IDs, version IDs and timestamps for one allowlisted Cloudflare Worker. No secrets, bindings or source code.", inputSchema:{type:"object",properties:{script:{type:"string"}},required:["script"],additionalProperties:false} },
 ];
 export const PROVIDER_TOOLS = Object.freeze(schemas.map(t=>({...t,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true}})));
@@ -35,9 +36,13 @@ async function requestData(url,headers,asText=false,fetcher=fetch){
   if(!response.ok)throw Error("UPSTREAM_HTTP_"+response.status);
   if(Number(response.headers.get("content-length")||0)>MAX_BODY)throw Error("UPSTREAM_TOO_LARGE");
   let body;
-  try {body=await response.text();} catch {throw Error("UPSTREAM_UNREADABLE");}
+  if(asText){
+    let bytes;try{bytes=await response.arrayBuffer();}catch{throw Error("UPSTREAM_UNREADABLE");}
+    if(bytes.byteLength>MAX_BODY)throw Error("UPSTREAM_TOO_LARGE");
+    try{body=new TextDecoder("utf-8",{fatal:true}).decode(bytes);}catch{throw Error("NOT_UTF8");}
+  }else{try {body=await response.text();} catch {throw Error("UPSTREAM_UNREADABLE");}}
   if(body.length>MAX_BODY)throw Error("UPSTREAM_TOO_LARGE");
-  if(asText)return body.slice(0,MAX_TEXT);
+  if(asText)return body;
   try{return JSON.parse(body);}catch {throw Error("UPSTREAM_NOT_JSON");}
 }
 const fileArgs = (a,key,envList) => {
@@ -79,7 +84,10 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
     need(data.content.length<=MAX_BODY,"UPSTREAM_TOO_LARGE");
     let body;try{body=new TextDecoder("utf-8",{fatal:true}).decode(Uint8Array.from(atob(data.content.replace(/\s/g,"")),c=>c.charCodeAt(0)));}
     catch{throw Error("NOT_UTF8");}
-    return {source:"github",repo:args.repo,path:args.path,ref:args.ref||null,sha:data.sha||null,text:body.slice(0,MAX_TEXT),truncated:body.length>MAX_TEXT};
+    const text=boundedText(body,MAX_TEXT);
+    const evidence=await documentEvidence({provider:"github",resource:[args.repo,args.path],requestedRef:args.ref||null,text,total:body.length,
+      revision:typeof data.sha==="string"&&/^[a-f0-9]{40,64}$/i.test(data.sha)?{kind:"git_blob_sha",value:data.sha,binding:"content"}:null});
+    return {source:"github",repo:args.repo,path:args.path,ref:args.ref||null,sha:data.sha||null,text,truncated:text.length<body.length,evidence};
   }
   if(name==="light_gitlab_project"){
     repoArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
@@ -95,7 +103,9 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
     let body;
     try{body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);}
     catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_FILE_REQUIRES_AUTHORIZED_ROUTE",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request authorized file inspection via PANTHEON; never make the project public."};throw error;}
-    return {source:"gitlab",project:args.project,path:args.path,ref:args.ref||"main",text:body,truncated:body.length>=MAX_TEXT};
+    const text=boundedText(body,MAX_TEXT);
+    const evidence=await documentEvidence({provider:"gitlab",resource:[args.project,args.path],requestedRef:args.ref||"main",text,total:body.length});
+    return {source:"gitlab",project:args.project,path:args.path,ref:args.ref||"main",text,truncated:text.length<body.length,evidence};
   }
   if(name==="light_cloudflare_worker"){
     need(only(args,["script"])&&safeScript(args.script),"INVALID_INPUT");

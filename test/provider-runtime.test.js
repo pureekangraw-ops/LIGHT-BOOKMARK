@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {Miniflare, Log, LogLevel} from 'miniflare';
 
-const source = readFileSync(new URL('../src/provider-read.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../src/document-evidence.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/provider-read.js', import.meta.url), 'utf8').replace(/^import .*document-evidence.*;\n/, '');
 const credential = 'synthetic-provider-credential';
 const env = {
   LIGHT_GITHUB_REPOS: 'fixture/repo',
@@ -42,7 +42,7 @@ test('provider readers use native Workers fetch without redirect or credential l
       export default {async fetch(request, env) {
         const {name,args,publicOnly} = await request.json();
         const settings = publicOnly ? {...env,LIGHT_GITLAB_READ_TOKEN:''} : env;
-        try {return Response.json({result:await runProviderTool(name,args,settings)});}
+        try {return Response.json({result:name==='light_document_compare'?compareDocumentEvidence(args):await runProviderTool(name,args,settings)});}
         catch (error) {return Response.json({error:error.message});}
       }};`,
   });
@@ -67,6 +67,7 @@ test('provider readers use native Workers fetch without redirect or credential l
         const data = await call(item);
         assert.equal(data.error, undefined, JSON.stringify(data));
         for (const [key,value] of Object.entries(item.expected)) assert.deepEqual(data.result[key], value);
+        if(item.name.endsWith('_file')){assert.equal(data.result.evidence.coverage.complete,true);assert.match(data.result.evidence.content_sha256,/^[a-f0-9]{64}$/);}
         assertSingleRequest(item);
         assert.doesNotMatch(JSON.stringify(data), /synthetic-provider-credential/);
       });
@@ -89,6 +90,20 @@ test('provider readers use native Workers fetch without redirect or credential l
         });
       }
     }
+    await t.test('native Workers rejects malformed GitLab UTF-8 instead of generating evidence',async()=>{
+      const item=cases.find(x=>x.name==='light_gitlab_file');
+      for(const byte of [0xff,0xfe]){
+        upstream=()=>new Response(new Uint8Array([byte]));
+        assert.deepEqual(await call(item),{error:'NOT_UTF8'});assertSingleRequest(item);
+      }
+    });
+    await t.test('native Workers compares observations without additional outbound requests',async()=>{
+      const item=cases.find(x=>x.name==='light_github_file');
+      upstream=()=>Response.json(item.body);
+      const first=(await call(item)).result.evidence;
+      const result=await call({name:'light_document_compare',args:{before:first,after:first}});
+      assert.equal(result.result.status,'unchanged');assert.equal(result.result.authenticity_verified,false);assert.equal(calls.length,0);
+    });
     for (const item of cases.filter(x=>x.name.startsWith('light_gitlab_'))) {
       for (const status of [401,403,404]) {
         await t.test(item.name+' retains its public-only authorized-route response for '+status, async () => {

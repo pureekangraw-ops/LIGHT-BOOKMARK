@@ -1,3 +1,4 @@
+import {DOCUMENT_EVIDENCE_TOOLS,compareDocumentEvidence} from "./document-evidence.js";
 import { NOTION_TOOLS, isNotionTool, runNotionTool } from "./notion-read.js";
 import { pantheonHealth } from "./pantheon-health.js";
 import { PROVIDER_TOOLS, isProviderTool, runProviderTool } from "./provider-read.js";
@@ -13,6 +14,7 @@ const MAX_QUERY_LENGTH = 100;
 const MAX_CUE_LENGTH = 500;
 
 const TOOLS = [
+  ...DOCUMENT_EVIDENCE_TOOLS,
   ...NOTION_TOOLS,
   ...PROVIDER_TOOLS,
   ...LIGHT_WORK_TOOLS,
@@ -221,6 +223,7 @@ async function saveBookmark(db, args) {
 async function callTool(db, name, args, env) {
   try {
     if (isNotionTool(name)) return toolResult(await runNotionTool(name, args, env));
+    if (name === "light_document_compare") return toolResult(compareDocumentEvidence(args));
     if (isProviderTool(name)) return toolResult(await runProviderTool(name, args, env));
     if (isLightWorkTool(name)) return toolResult(await runLightWorkTool(name, args, env));
     if (isLightDriveTool(name)) return toolResult(await runLightDriveTool(name, args, env));
