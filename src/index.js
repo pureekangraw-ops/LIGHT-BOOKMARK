@@ -1,5 +1,3 @@
-import { WorkerEntrypoint } from "cloudflare:workers";
-import { legacyCapabilityProbe } from "./legacy-explorer-read.js";
 import {DOCUMENT_EVIDENCE_TOOLS,compareDocumentEvidence} from "./document-evidence.js";
 import { NOTION_TOOLS, isNotionTool, runNotionTool } from "./notion-read.js";
 import { pantheonHealth } from "./pantheon-health.js";
@@ -354,9 +352,3 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
-// Internal named RPC only. Public /mcp authentication is unchanged.
-export class LegacyExplorerRead extends WorkerEntrypoint {
-  async probe(capability) {
-    return legacyCapabilityProbe(capability,this.env);
-  }
-}
