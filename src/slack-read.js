@@ -51,7 +51,14 @@ export async function runSlackTool(name,args={},env={},fetcher=fetch){
  if(response.status===429){const retry=Number(response.headers.get('retry-after'));return {...fail('ratelimited'),retry_after_seconds:Number.isFinite(retry)&&retry>0?Math.ceil(retry):60};}
  if(!response.ok)return {...fail('SLACK_HTTP_ERROR'),http_status:response.status};
  let data;try{data=await readJson(response);}catch{return fail('SLACK_INVALID_RESPONSE');}
- if(data?.ok!==true)return fail(knownErrors.has(data?.error)?data.error:'SLACK_API_ERROR');
+ if(data?.ok!==true){
+  const result=fail(knownErrors.has(data?.error)?data.error:'SLACK_API_ERROR');
+  if(data?.error==='missing_scope'&&typeof data.needed==='string'){
+   const allowed=new Set(['channels:read','groups:read','im:read','mpim:read','channels:history','groups:history','im:history','mpim:history']);
+   result.required_scopes=data.needed.split(',').map(s=>s.trim()).filter(s=>allowed.has(s));
+  }
+  return result;
+ }
  const base={ok:true,source:'slack',read_only:true,retrieved_at:new Date().toISOString()};
  if(statusCall){
   if(typeof data.team_id!=='string'||typeof data.user_id!=='string')return fail('SLACK_INVALID_RESPONSE');
