@@ -26,6 +26,38 @@ const safeScript = s => typeof s==="string" && /^[A-Za-z0-9_-]{1,80}$/.test(s);
 function allow(value,provided){if(!provided || !list(provided).has(value))throw Error("RESOURCE_NOT_ALLOWLISTED");}
 function need(cond,msg){if(!cond)throw Error(msg);}
 function auth(token){return token?{Authorization:"Bearer "+token}:{};}
+// Only normalized numeric evidence is retained. Never read error bodies or
+// copy arbitrary headers, URLs, credentials, or provider messages into errors.
+const MAX_RETRY_SECONDS = 86400;
+function retryAfterSeconds(value, now=Date.now()) {
+  if(typeof value!=="string" || value.length>64)return null;
+  if(/^\d{1,5}$/.test(value)) {
+    const seconds=Number(value);
+    return seconds<=MAX_RETRY_SECONDS?seconds:null;
+  }
+  // Accept canonical IMF-fixdate only; Date.parse alone accepts malformed dates.
+  if(!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value))return null;
+  const time=Date.parse(value);
+  if(!Number.isFinite(time) || new Date(time).toUTCString()!==value || time<now)return null;
+  const seconds=Math.ceil((time-now)/1000);
+  return seconds>=0&&seconds<=MAX_RETRY_SECONDS?seconds:null;
+}
+export class ProviderHttpError extends Error {
+  constructor(response) {
+    super("UPSTREAM_HTTP_"+response.status);
+    if(![403,429].includes(response.status))return;
+    const rawRemaining=response.headers.get("x-ratelimit-remaining");
+    const remaining=typeof rawRemaining==="string"&&/^\d{1,10}$/.test(rawRemaining)?Number(rawRemaining):null;
+    this.diagnostics=Object.freeze({
+      http_status:response.status,
+      cause:response.status===429||remaining===0?"rate_limit_observed":"unknown",
+      permission_status:"unknown",
+      rate_limit_remaining:remaining,
+      retry_after_seconds:retryAfterSeconds(response.headers.get("retry-after")),
+      automatic_retry:false,
+    });
+  }
+}
 async function requestData(url,headers,asText=false,fetcher=fetch){
   let response;
   try {response=await fetcher(url,{method:"GET",headers,redirect:"manual",signal:AbortSignal.timeout(8000)});}
@@ -33,7 +65,7 @@ async function requestData(url,headers,asText=false,fetcher=fetch){
   // Workers does not implement redirect:"error". Never follow credential-bearing
   // requests, and reject every 3xx before reading a body or Location header.
   if(response.status>=300&&response.status<400)throw Error("UPSTREAM_REDIRECT_REJECTED");
-  if(!response.ok)throw Error("UPSTREAM_HTTP_"+response.status);
+  if(!response.ok)throw new ProviderHttpError(response);
   if(Number(response.headers.get("content-length")||0)>MAX_BODY)throw Error("UPSTREAM_TOO_LARGE");
   let body;
   if(asText){
@@ -94,7 +126,7 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
     let data;
     try {data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
       {"Accept":"application/json",...auth(env.LIGHT_GITLAB_READ_TOKEN)},false,fetcher);}
-    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_PROJECT_REQUIRES_AUTHORIZED_ROUTE",project:args.project,route:"light_pantheon_create_task",message:"Request an authorized inspection via PANTHEON; never make the project public."};throw error;}
+    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_PROJECT_REQUIRES_AUTHORIZED_ROUTE",project:args.project,route:"light_pantheon_create_task",message:"Request an authorized inspection via PANTHEON; never make the project public.",...(error.diagnostics?{diagnostics:error.diagnostics}:{})};throw error;}
     return {source:"gitlab",project:data.path_with_namespace,description:data.description||"",visibility:data.visibility,default_branch:data.default_branch,url:data.web_url,last_activity_at:data.last_activity_at};
   }
   if(name==="light_gitlab_file"){
@@ -102,7 +134,7 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
     const url="https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project)+"/repository/files/"+encodeURIComponent(args.path)+"/raw?ref="+encodeURIComponent(args.ref||"main");
     let body;
     try{body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);}
-    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_FILE_REQUIRES_AUTHORIZED_ROUTE",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request authorized file inspection via PANTHEON; never make the project public."};throw error;}
+    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_FILE_REQUIRES_AUTHORIZED_ROUTE",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request authorized file inspection via PANTHEON; never make the project public.",...(error.diagnostics?{diagnostics:error.diagnostics}:{})};throw error;}
     const text=boundedText(body,MAX_TEXT);
     const evidence=await documentEvidence({provider:"gitlab",resource:[args.project,args.path],requestedRef:args.ref||"main",text,total:body.length});
     return {source:"gitlab",project:args.project,path:args.path,ref:args.ref||"main",text,truncated:text.length<body.length,evidence};

@@ -1,7 +1,7 @@
 import {DOCUMENT_EVIDENCE_TOOLS,compareDocumentEvidence} from "./document-evidence.js";
 import { NOTION_TOOLS, isNotionTool, runNotionTool } from "./notion-read.js";
 import { pantheonHealth } from "./pantheon-health.js";
-import { PROVIDER_TOOLS, isProviderTool, runProviderTool } from "./provider-read.js";
+import { PROVIDER_TOOLS, isProviderTool, runProviderTool, ProviderHttpError } from "./provider-read.js";
 import { LIGHT_WORK_TOOLS, isLightWorkTool, runLightWorkTool } from "./light-work.js";
 import { LIGHT_DRIVE_TOOLS, isLightDriveTool, runLightDriveTool } from "./drive-bridge.js";
 // LIGHT Bookmark: a small MCP pointer index over Notion pages.
@@ -253,7 +253,11 @@ async function callTool(db, name, args, env) {
     }
     return toolError(`Unknown tool: ${name}`);
   } catch (error) {
-    return toolError(error instanceof Error ? error.message : "Bookmark operation failed.");
+    const result=toolError(error instanceof Error ? error.message : "Bookmark operation failed.");
+    if(error instanceof ProviderHttpError && error.diagnostics) {
+      result.content.push({type:"text",text:JSON.stringify({diagnostics:error.diagnostics})});
+    }
+    return result;
   }
 }
 

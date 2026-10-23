@@ -43,7 +43,7 @@ test('provider readers use native Workers fetch without redirect or credential l
         const {name,args,publicOnly} = await request.json();
         const settings = publicOnly ? {...env,LIGHT_GITLAB_READ_TOKEN:''} : env;
         try {return Response.json({result:name==='light_document_compare'?compareDocumentEvidence(args):await runProviderTool(name,args,settings)});}
-        catch (error) {return Response.json({error:error.message});}
+        catch (error) {return Response.json({error:error.message,...(error.diagnostics?{diagnostics:error.diagnostics}:{})});}
       }};`,
   });
   const call = async (item, extra={}) => {
@@ -85,11 +85,22 @@ test('provider readers use native Workers fetch without redirect or credential l
       for (const status of [401,403,404,429,503]) {
         await t.test(item.name+' preserves sanitized HTTP '+status+' errors', async () => {
           upstream = () => new Response('upstream-sensitive-body '+credential, {status});
-          assert.deepEqual(await call(item), {error:'UPSTREAM_HTTP_'+status});
+          assert.deepEqual(await call(item), {error:'UPSTREAM_HTTP_'+status,...([403,429].includes(status)?{diagnostics:{http_status:status,cause:status===429?'rate_limit_observed':'unknown',permission_status:'unknown',rate_limit_remaining:null,retry_after_seconds:null,automatic_retry:false}}:{})});
           assertSingleRequest(item);
         });
       }
     }
+    await t.test('native Workers preserves normalized 403/429 headers with one request',async()=>{
+      for(const status of [403,429]){
+        upstream=()=>new Response('sensitive body',{status,headers:{'x-ratelimit-remaining':'0','retry-after':'60','x-private':'sensitive'}});
+        const data=await call(cases[0]);
+        assert.equal(data.diagnostics.cause,'rate_limit_observed');
+        assert.equal(data.diagnostics.retry_after_seconds,60);
+        assert.equal(data.diagnostics.rate_limit_remaining,0);
+        assert.doesNotMatch(JSON.stringify(data),/sensitive/);
+        assertSingleRequest(cases[0]);
+      }
+    });
     await t.test('native Workers rejects malformed GitLab UTF-8 instead of generating evidence',async()=>{
       const item=cases.find(x=>x.name==='light_gitlab_file');
       for(const byte of [0xff,0xfe]){

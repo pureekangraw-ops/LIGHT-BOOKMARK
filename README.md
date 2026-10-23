@@ -166,3 +166,26 @@ which these tests use. This is not production equivalence to the deployed
 `2026-10-10` compatibility date, and does not replace a separately authorized
 staging/runtime check. No provider permissions, allowlists, or credentials are
 changed by this fix.
+
+### Provider HTTP diagnostics
+
+Provider 403/429 failures retain their existing `UPSTREAM_HTTP_<status>` error
+message and MCP `isError` flag/first text block. A second JSON text block carries
+`diagnostics`; public-only GitLab authorized-route results retain existing fields
+and add the same object on 403. Other errors and successful results are unchanged.
+
+Diagnostics contain only HTTP status, `cause`, `permission_status`, normalized
+`rate_limit_remaining`, `retry_after_seconds`, and `automatic_retry: false`.
+HTTP 429 or a 403 with valid `X-RateLimit-Remaining: 0` yields
+`cause: rate_limit_observed`. Other 403s remain `unknown`; neither a positive
+remaining count nor a 403 proves a permission failure. Permission status remains
+`unknown`. These observations do not establish full quota, scope, or account access.
+
+`Retry-After` accepts integer seconds or canonical IMF-fixdate, with a maximum
+future delay of 86,400 seconds. Missing, malformed, past, or out-of-range values
+produce `null`, never an inferred immediate retry. Remaining counts accept only
+1–10 decimal digits; invalid/missing counts produce `null`. No raw headers,
+provider error bodies, request headers, credentials, or user content are included.
+The connector makes one request and stops; it does not schedule or perform retries
+or fall back to another identity. Valid retry timing is a minimum wait hint for
+callers, not permission to retry automatically. Unknown timing requires review.
