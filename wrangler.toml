@@ -1,5 +1,5 @@
 name = "light-bookmark"
-main = "src/index.js"
+main = "src/legacy-entrypoint.js"
 compatibility_date = "2026-10-10"
 
 [vars]
