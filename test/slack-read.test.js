@@ -48,3 +48,8 @@ test('malformed successful responses are not reported as verified',async()=>{
  assert.equal((await runSlackTool('light_slack_status',{},env,async()=>reply({ok:true}))).ok,false);
  assert.equal((await runSlackTool('light_slack_history',{channel},env,async()=>reply({ok:true,messages:[{}]}))).ok,false);
 });
+
+test('missing scope diagnostics expose only recognized permission names',async()=>{
+ const r=await runSlackTool('light_slack_history',{channel},env,async()=>reply({ok:false,error:'missing_scope',needed:'channels:history,test-access-secret'}));
+ assert.deepEqual(r.required_scopes,['channels:history']);assert(!JSON.stringify(r).includes('secret'));
+});
