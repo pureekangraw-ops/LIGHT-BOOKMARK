@@ -52,13 +52,22 @@ const fileArgs = (a,key,envList) => {
 const repoArgs = (a,key,envList) => {
   need(only(a,[key]) && id(a[key]),"INVALID_INPUT");allow(a[key],envList);
 };
+const hasSecretBinding=value=>typeof value==="string"?value.length>0:Boolean(value&&typeof value.get==="function");
+async function readSecret(value){
+  if(typeof value==="string")return value;
+  if(value&&typeof value.get==="function"){
+    try{const resolved=await value.get();return typeof resolved==="string"?resolved:"";}
+    catch{throw Error("SECRET_STORE_READ_FAILED");}
+  }
+  return "";
+}
 function configuration(required,invalid=[]){
   const missing=required.filter(([,present])=>!present).map(([name])=>name);
   const configured=missing.length===0&&invalid.length===0;
   return {ready:configured,configured,status:invalid.length?"invalid_configuration":configured?"configured_unverified":"not_configured",missing_configuration:missing,...(invalid.length?{invalid_configuration:invalid}:{})};
 }
 function gitlabAccessFailure(project,env,resourceKind,path){
-  const hasToken=Boolean(env.LIGHT_GITLAB_READ_TOKEN);
+  const hasToken=hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN);
   const result={ok:false,source:"gitlab",status:hasToken?"GITLAB_DIRECT_ACCESS_DENIED":"GITLAB_DIRECT_TOKEN_REQUIRED",
     resource_kind:resourceKind,project,route:"LIGHT_DIRECT",
     message:hasToken?"The LIGHT GitLab token was rejected or lacks access; check its validity, scope, project membership, and expiry.":"Configure a read-only LIGHT_GITLAB_READ_TOKEN for direct access to this GitLab resource."};
@@ -69,8 +78,8 @@ function gitlabAccessFailure(project,env,resourceKind,path){
 function status(env){
   return {read_only:true,configuration_only:true,live_access_verified:false,
     note:"ready/configured describe local configuration only, not verified provider access. write_actions describes this status tool, not other tools.",
-    github:{...configuration([["LIGHT_GITHUB_REPOS",list(env.LIGHT_GITHUB_REPOS).size]]),mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
-    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:env.LIGHT_GITLAB_READ_TOKEN?"LIGHT_DIRECT_TOKEN":"LIGHT_DIRECT_TOKEN_REQUIRED"},
+    github:{...configuration([["LIGHT_GITHUB_REPOS",list(env.LIGHT_GITHUB_REPOS).size]]),mode:hasSecretBinding(env.LIGHT_GITHUB_READ_TOKEN)?"token":"public_only"},
+    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN)?"token":"public_only",private_project_route:hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN)?"LIGHT_DIRECT_TOKEN":"LIGHT_DIRECT_TOKEN_REQUIRED"},
     cloudflare:{...configuration([["LIGHT_CF_READ_TOKEN",env.LIGHT_CF_READ_TOKEN],["LIGHT_CF_ACCOUNT_ID",env.LIGHT_CF_ACCOUNT_ID],["LIGHT_CF_WORKERS",list(env.LIGHT_CF_WORKERS).size]],env.LIGHT_CF_ACCOUNT_ID&&!/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID)?["LIGHT_CF_ACCOUNT_ID"]:[])},
     drive:{...configuration([["LIGHT_GOOGLE_CLIENT_ID",env.LIGHT_GOOGLE_CLIENT_ID],["LIGHT_GOOGLE_CLIENT_SECRET",env.LIGHT_GOOGLE_CLIENT_SECRET],["LIGHT_GOOGLE_REFRESH_TOKEN or GOOGLE_REFRESH_TOKEN",env.LIGHT_GOOGLE_REFRESH_TOKEN||env.GOOGLE_REFRESH_TOKEN]]),mode:"LIGHT_DIRECT_GOOGLE_OAUTH",note:"Local configuration only; live API access, OAuth scopes and file permissions must be tested separately."},
     pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
@@ -80,15 +89,17 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   if(name==="light_connections_status"){need(only(args,[]),"INVALID_INPUT");return status(env);}
   if(name==="light_github_repo"){
     repoArgs(args,"repo",env.LIGHT_GITHUB_REPOS);
+    const token=await readSecret(env.LIGHT_GITHUB_READ_TOKEN);
     const data=await requestData("https://api.github.com/repos/"+args.repo,
-      {"Accept":"application/vnd.github+json","User-Agent":"LIGHT-Bookmark",...auth(env.LIGHT_GITHUB_READ_TOKEN)},false,fetcher);
+      {"Accept":"application/vnd.github+json","User-Agent":"LIGHT-Bookmark",...auth(token)},false,fetcher);
     return {source:"github",repo:data.full_name,description:data.description||"",private:!!data.private,default_branch:data.default_branch,url:data.html_url,updated_at:data.updated_at};
   }
   if(name==="light_github_file"){
     fileArgs(args,"repo",env.LIGHT_GITHUB_REPOS);
+    const token=await readSecret(env.LIGHT_GITHUB_READ_TOKEN);
     const suffix=args.path.split("/").map(encodeURIComponent).join("/");
     const url="https://api.github.com/repos/"+args.repo+"/contents/"+suffix+(args.ref?"?ref="+encodeURIComponent(args.ref):"");
-    const data=await requestData(url,{"Accept":"application/vnd.github+json","User-Agent":"LIGHT-Bookmark",...auth(env.LIGHT_GITHUB_READ_TOKEN)},false,fetcher);
+    const data=await requestData(url,{"Accept":"application/vnd.github+json","User-Agent":"LIGHT-Bookmark",...auth(token)},false,fetcher);
     need(data.type==="file"&&data.encoding==="base64"&&typeof data.content==="string","NOT_A_TEXT_FILE");
     need(data.content.length<=MAX_BODY,"UPSTREAM_TOO_LARGE");
     let body;try{body=new TextDecoder("utf-8",{fatal:true}).decode(Uint8Array.from(atob(data.content.replace(/\s/g,"")),c=>c.charCodeAt(0)));}
@@ -100,22 +111,24 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   }
   if(name==="light_gitlab_project"){
     repoArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
+    const token=await readSecret(env.LIGHT_GITLAB_READ_TOKEN);
     let data;
     try {data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
-      {"Accept":"application/json",...auth(env.LIGHT_GITLAB_READ_TOKEN)},false,fetcher);}
+      {"Accept":"application/json",...auth(token)},false,fetcher);}
     catch(error){
-      if(["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return gitlabAccessFailure(args.project,env,"project");
+      if(["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return gitlabAccessFailure(args.project,{...env,LIGHT_GITLAB_READ_TOKEN:token},"project");
       throw error;
     }
     return {source:"gitlab",project:data.path_with_namespace,description:data.description||"",visibility:data.visibility,default_branch:data.default_branch,url:data.web_url,last_activity_at:data.last_activity_at};
   }
   if(name==="light_gitlab_file"){
     fileArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
+    const token=await readSecret(env.LIGHT_GITLAB_READ_TOKEN);
     const url="https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project)+"/repository/files/"+encodeURIComponent(args.path)+"/raw?ref="+encodeURIComponent(args.ref||"main");
     let body;
-    try{body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);}
+    try{body=await requestData(url,{"Accept":"text/plain",...auth(token)},true,fetcher);}
     catch(error){
-      if(["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return gitlabAccessFailure(args.project,env,"file",args.path);
+      if(["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return gitlabAccessFailure(args.project,{...env,LIGHT_GITLAB_READ_TOKEN:token},"file",args.path);
       throw error;
     }
     const text=boundedText(body,MAX_TEXT);
@@ -125,10 +138,11 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   if(name==="light_cloudflare_worker"){
     need(only(args,["script"])&&safeScript(args.script),"INVALID_INPUT");
     allow(args.script,env.LIGHT_CF_WORKERS);
-    need(env.LIGHT_CF_READ_TOKEN&&/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID||""),"CLOUDFLARE_READ_CONNECTION_NOT_CONFIGURED");
+    const token=await readSecret(env.LIGHT_CF_READ_TOKEN);
+    need(token&&/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID||""),"CLOUDFLARE_READ_CONNECTION_NOT_CONFIGURED");
     const data=await requestData("https://api.cloudflare.com/client/v4/accounts/"+env.LIGHT_CF_ACCOUNT_ID+
       "/workers/scripts/"+encodeURIComponent(args.script)+"/deployments?per_page=5",
-      {"Accept":"application/json",...auth(env.LIGHT_CF_READ_TOKEN)},false,fetcher);
+      {"Accept":"application/json",...auth(token)},false,fetcher);
     need(data.success===true&&Array.isArray(data.result?.deployments),"UPSTREAM_INVALID_RESULT");
     return {source:"cloudflare",script:args.script,deployments:data.result.deployments.slice(0,5).map(d=>({
       id:d.id,created_on:d.created_on,source:d.source,versions:(d.versions||[]).map(v=>({version_id:v.version_id,percentage:v.percentage}))
