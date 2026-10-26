@@ -22,6 +22,8 @@ test("status does not expose credential values; Drive remains a separate Notion 
   assert.equal(result.cloudflare.ready,true);
   assert.equal(result.write_actions,false);
   assert.doesNotMatch(JSON.stringify(result),/restricted-test-token/);
+  assert.equal(result.gitlab.private_project_route,"LIGHT_DIRECT_TOKEN_REQUIRED");
+  assert.doesNotMatch(JSON.stringify(result.gitlab),/PANTHEON/i);
 });
 test("GitHub rejects non-allowlisted repos, unknown fields and suspicious file paths before network",async()=>{
   let count=0;const mock=async()=>{count++;return response({})};
@@ -52,6 +54,23 @@ test("GitLab project reader uses fixed gitlab.com API",async()=>{
   assert.match(url,/^https:\/\/gitlab.com\/api\/v4\/projects\//);
   assert.equal(value.project,"yggmetro-group1/factory-district");
   assert.doesNotMatch(JSON.stringify(value),/hidden/);
+});
+test("GitLab access failures stay on LIGHT and clearly request its own read token",async()=>{
+  for(const [name,args,kind] of [
+    ["light_gitlab_project",{project:"yggmetro-group1/factory-district"},"project"],
+    ["light_gitlab_file",{project:"yggmetro-group1/factory-district",path:"README.md"},"file"],
+  ]){
+    const value=await runProviderTool(name,args,{...env,LIGHT_GITLAB_READ_TOKEN:""},async()=>response("private",404));
+    assert.equal(value.status,"GITLAB_DIRECT_TOKEN_REQUIRED");
+    assert.equal(value.resource_kind,kind);
+    assert.equal(value.route,"LIGHT_DIRECT");
+    assert.equal(value.required_configuration,"LIGHT_GITLAB_READ_TOKEN");
+    assert.doesNotMatch(JSON.stringify(value),/PANTHEON/i);
+  }
+  const denied=await runProviderTool("light_gitlab_project",{project:"yggmetro-group1/factory-district"},{...env,LIGHT_GITLAB_READ_TOKEN:"synthetic-token"},async()=>response("denied",403));
+  assert.equal(denied.status,"GITLAB_DIRECT_ACCESS_DENIED");
+  assert.equal(denied.route,"LIGHT_DIRECT");
+  assert.doesNotMatch(JSON.stringify(denied),/synthetic-token|PANTHEON/i);
 });
 test("GitLab file reader requires the project's allowlist",async()=>{
   let calls=0;const mock=async()=>{calls++;return response("hello")};

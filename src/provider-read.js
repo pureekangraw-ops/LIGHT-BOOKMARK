@@ -57,11 +57,20 @@ function configuration(required,invalid=[]){
   const configured=missing.length===0&&invalid.length===0;
   return {ready:configured,configured,status:invalid.length?"invalid_configuration":configured?"configured_unverified":"not_configured",missing_configuration:missing,...(invalid.length?{invalid_configuration:invalid}:{})};
 }
+function gitlabAccessFailure(project,env,resourceKind,path){
+  const hasToken=Boolean(env.LIGHT_GITLAB_READ_TOKEN);
+  const result={ok:false,source:"gitlab",status:hasToken?"GITLAB_DIRECT_ACCESS_DENIED":"GITLAB_DIRECT_TOKEN_REQUIRED",
+    resource_kind:resourceKind,project,route:"LIGHT_DIRECT",
+    message:hasToken?"The LIGHT GitLab token was rejected or lacks access; check its validity, scope, project membership, and expiry.":"Configure a read-only LIGHT_GITLAB_READ_TOKEN for direct access to this GitLab resource."};
+  if(path)result.path=path;
+  if(!hasToken)result.required_configuration="LIGHT_GITLAB_READ_TOKEN";
+  return result;
+}
 function status(env){
   return {read_only:true,configuration_only:true,live_access_verified:false,
     note:"ready/configured describe local configuration only, not verified provider access. write_actions describes this status tool, not other tools.",
     github:{...configuration([["LIGHT_GITHUB_REPOS",list(env.LIGHT_GITHUB_REPOS).size]]),mode:env.LIGHT_GITHUB_READ_TOKEN?"token":"public_only"},
-    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:"PANTHEON_LIGHT_TASK"},
+    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:env.LIGHT_GITLAB_READ_TOKEN?"token":"public_only",private_project_route:env.LIGHT_GITLAB_READ_TOKEN?"LIGHT_DIRECT_TOKEN":"LIGHT_DIRECT_TOKEN_REQUIRED"},
     cloudflare:{...configuration([["LIGHT_CF_READ_TOKEN",env.LIGHT_CF_READ_TOKEN],["LIGHT_CF_ACCOUNT_ID",env.LIGHT_CF_ACCOUNT_ID],["LIGHT_CF_WORKERS",list(env.LIGHT_CF_WORKERS).size]],env.LIGHT_CF_ACCOUNT_ID&&!/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID)?["LIGHT_CF_ACCOUNT_ID"]:[])},
     drive:{...configuration([["LIGHT_GOOGLE_CLIENT_ID",env.LIGHT_GOOGLE_CLIENT_ID],["LIGHT_GOOGLE_CLIENT_SECRET",env.LIGHT_GOOGLE_CLIENT_SECRET],["LIGHT_GOOGLE_REFRESH_TOKEN or GOOGLE_REFRESH_TOKEN",env.LIGHT_GOOGLE_REFRESH_TOKEN||env.GOOGLE_REFRESH_TOKEN]]),mode:"LIGHT_DIRECT_GOOGLE_OAUTH",note:"Local configuration only; live API access, OAuth scopes and file permissions must be tested separately."},
     pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
@@ -94,7 +103,10 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
     let data;
     try {data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
       {"Accept":"application/json",...auth(env.LIGHT_GITLAB_READ_TOKEN)},false,fetcher);}
-    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_PROJECT_REQUIRES_AUTHORIZED_ROUTE",project:args.project,route:"light_pantheon_create_task",message:"Request an authorized inspection via PANTHEON; never make the project public."};throw error;}
+    catch(error){
+      if(["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return gitlabAccessFailure(args.project,env,"project");
+      throw error;
+    }
     return {source:"gitlab",project:data.path_with_namespace,description:data.description||"",visibility:data.visibility,default_branch:data.default_branch,url:data.web_url,last_activity_at:data.last_activity_at};
   }
   if(name==="light_gitlab_file"){
@@ -102,7 +114,10 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
     const url="https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project)+"/repository/files/"+encodeURIComponent(args.path)+"/raw?ref="+encodeURIComponent(args.ref||"main");
     let body;
     try{body=await requestData(url,{"Accept":"text/plain",...auth(env.LIGHT_GITLAB_READ_TOKEN)},true,fetcher);}
-    catch(error){if(!env.LIGHT_GITLAB_READ_TOKEN && ["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return {ok:false,status:"PRIVATE_FILE_REQUIRES_AUTHORIZED_ROUTE",project:args.project,path:args.path,route:"light_pantheon_create_task",message:"Request authorized file inspection via PANTHEON; never make the project public."};throw error;}
+    catch(error){
+      if(["UPSTREAM_HTTP_401","UPSTREAM_HTTP_403","UPSTREAM_HTTP_404"].includes(error.message))return gitlabAccessFailure(args.project,env,"file",args.path);
+      throw error;
+    }
     const text=boundedText(body,MAX_TEXT);
     const evidence=await documentEvidence({provider:"gitlab",resource:[args.project,args.path],requestedRef:args.ref||"main",text,total:body.length});
     return {source:"gitlab",project:args.project,path:args.path,ref:args.ref||"main",text,truncated:text.length<body.length,evidence};

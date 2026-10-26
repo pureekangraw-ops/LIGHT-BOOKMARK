@@ -85,7 +85,14 @@ test('provider readers use native Workers fetch without redirect or credential l
       for (const status of [401,403,404,429,503]) {
         await t.test(item.name+' preserves sanitized HTTP '+status+' errors', async () => {
           upstream = () => new Response('upstream-sensitive-body '+credential, {status});
-          assert.deepEqual(await call(item), {error:'UPSTREAM_HTTP_'+status});
+          const data=await call(item);
+          if(item.name.startsWith('light_gitlab_')&&[401,403,404].includes(status)){
+            assert.equal(data.error,undefined,JSON.stringify(data));
+            assert.equal(data.result.status,'GITLAB_DIRECT_ACCESS_DENIED');
+            assert.equal(data.result.route,'LIGHT_DIRECT');
+            assert.equal(data.result.resource_kind,item.name.endsWith('_file')?'file':'project');
+            assert.doesNotMatch(JSON.stringify(data),/PANTHEON|synthetic-provider-credential/);
+          }else assert.deepEqual(data, {error:'UPSTREAM_HTTP_'+status});
           assertSingleRequest(item);
         });
       }
@@ -106,12 +113,15 @@ test('provider readers use native Workers fetch without redirect or credential l
     });
     for (const item of cases.filter(x=>x.name.startsWith('light_gitlab_'))) {
       for (const status of [401,403,404]) {
-        await t.test(item.name+' retains its public-only authorized-route response for '+status, async () => {
+        await t.test(item.name+' requests direct LIGHT credentials without handing off for '+status, async () => {
           upstream = () => new Response('private upstream body', {status});
           const data = await call(item, {publicOnly:true});
           assert.equal(data.error, undefined, JSON.stringify(data));
-          assert.equal(data.result.status, item.name.endsWith('_file') ? 'PRIVATE_FILE_REQUIRES_AUTHORIZED_ROUTE' : 'PRIVATE_PROJECT_REQUIRES_AUTHORIZED_ROUTE');
-          assert.equal(data.result.route, 'light_pantheon_create_task');
+          assert.equal(data.result.status, 'GITLAB_DIRECT_TOKEN_REQUIRED');
+          assert.equal(data.result.route, 'LIGHT_DIRECT');
+          assert.equal(data.result.resource_kind, item.name.endsWith('_file') ? 'file' : 'project');
+          assert.equal(data.result.required_configuration, 'LIGHT_GITLAB_READ_TOKEN');
+          assert.doesNotMatch(JSON.stringify(data),/PANTHEON/);
           assert.equal(calls.length, 1);
           assert.equal(calls[0].authorization, null);
         });
