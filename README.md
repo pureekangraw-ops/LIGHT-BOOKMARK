@@ -57,8 +57,22 @@ These tools do **not** make LIGHT an owner of GO Brain or PANTHEON:
 Optional secrets to read **private** repositories: `LIGHT_GITHUB_READ_TOKEN` and
 `LIGHT_GITLAB_READ_TOKEN`. Each must be a separate, narrowly scoped read-only
 credential owned by LIGHT. Without tokens, only public GitHub/GitLab resources
-work. Set `LIGHT_CF_ACCOUNT_ID` and **secret** `LIGHT_CF_READ_TOKEN` with
-Cloudflare Workers Scripts read permission to enable Worker deployment inspection.
+work. Private GitLab reads go directly from LIGHT Bookmark to GitLab using
+`LIGHT_GITLAB_READ_TOKEN`; they do not hand off through PANTHEON and must never
+make the project public. Set `LIGHT_CF_ACCOUNT_ID` and **secret**
+`LIGHT_CF_READ_TOKEN` with Cloudflare Workers Scripts read permission to enable
+Worker deployment inspection.
+
+Provider tokens can be supplied either as per-Worker secrets or as Cloudflare
+Secrets Store bindings. The adapter awaits `env.<binding>.get()` for Secret Store
+bindings and continues to accept ordinary secret strings. `wrangler.toml` maps
+account-level `GITHUB_TOKEN`, `GITLAB_TOKEN`, and `CLOUDFLARE_TOKEN` values to
+LIGHT-specific binding aliases; the values remain in Cloudflare and are never
+committed. Live provider access still needs verification after deployment. A
+Secret Store does not make an invalid token valid. Binding a Secret Store value
+requires a Cloudflare role that can deploy Secrets Store bindings. See Cloudflare's
+[Workers integration](https://developers.cloudflare.com/secrets-store/integrations/workers/)
+and [Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
 Never copy GO Brain, WorkHub, or Factory tokens into LIGHT.
 
 **Configuration diagnostics:** `light_connections_status` does not call providers.
@@ -156,7 +170,7 @@ fetch stub. All outbound traffic is intercepted locally, including attempted
 redirect destinations; tests use synthetic credentials and contact no providers.
 Coverage includes all five GitHub/GitLab/Cloudflare readers, JSON and text paths,
 3xx rejection without forwarding credentials, sanitized HTTP errors, and GitLab's
-public-only authorized-route response.
+direct LIGHT token-required response when no GitLab token is configured, with no PANTHEON handoff.
 
 Workers does not support `redirect: "error"`; the adapter uses `manual` and
 rejects every 3xx before inspecting a body or Location header. See the
