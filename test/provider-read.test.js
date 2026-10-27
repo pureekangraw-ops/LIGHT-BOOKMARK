@@ -26,7 +26,7 @@ test("status does not expose credential values; Drive remains a separate Notion 
   assert.doesNotMatch(JSON.stringify(result.gitlab),/PANTHEON/i);
   let reads=0;
   const binding={get:async()=>{reads++;return "synthetic-secret-store-token";}};
-  const bound=await runProviderTool("light_connections_status",{}, {...env,LIGHT_GITLAB_READ_TOKEN:binding});
+  const bound=await runProviderTool("light_connections_status",{}, {...env,LIGHT_GITLAB_READ_TOKEN_STORE:binding});
   assert.equal(bound.gitlab.mode,"token");
   assert.equal(reads,0);
   assert.doesNotMatch(JSON.stringify(bound),/synthetic-secret-store-token/);
@@ -65,9 +65,9 @@ test("provider readers resolve Cloudflare Secrets Store bindings asynchronously"
   const secret="synthetic-secret-store-token";
   const binding={get:async()=>secret};
   const cases=[
-    ["light_github_repo",{repo:"pureekangraw-ops/LIGHT-BOOKMARK"},{...env,LIGHT_GITHUB_READ_TOKEN:binding},"github",{full_name:"pureekangraw-ops/LIGHT-BOOKMARK"}],
-    ["light_gitlab_project",{project:"yggmetro-group1/factory-district"},{...env,LIGHT_GITLAB_READ_TOKEN:binding},"gitlab",{path_with_namespace:"yggmetro-group1/factory-district"}],
-    ["light_cloudflare_worker",{script:"factory-district1"},{...env,LIGHT_CF_READ_TOKEN:binding},"cloudflare",{success:true,result:{deployments:[]}}],
+    ["light_github_repo",{repo:"pureekangraw-ops/LIGHT-BOOKMARK"},{...env,LIGHT_GITHUB_READ_TOKEN_STORE:binding},"github",{full_name:"pureekangraw-ops/LIGHT-BOOKMARK"}],
+    ["light_gitlab_project",{project:"yggmetro-group1/factory-district"},{...env,LIGHT_GITLAB_READ_TOKEN_STORE:binding},"gitlab",{path_with_namespace:"yggmetro-group1/factory-district"}],
+    ["light_cloudflare_worker",{script:"factory-district1"},{...env,LIGHT_CF_READ_TOKEN_STORE:binding},"cloudflare",{success:true,result:{deployments:[]}}],
   ];
   for(const [name,args,settings,host,body] of cases){
     let authorization;

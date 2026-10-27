@@ -64,23 +64,14 @@ make the project public. Set `LIGHT_CF_ACCOUNT_ID` and **secret**
 Worker deployment inspection.
 
 Provider tokens can be supplied either as per-Worker secrets or as Cloudflare
-Secrets Store bindings using the same `LIGHT_*` binding names. The adapter awaits
-`env.<binding>.get()` for Secret Store bindings and continues to accept ordinary
-secret strings. Bind only dedicated LIGHT-owned, least-privilege tokens; do not
-reuse generic account secrets unless their owner, scope, and intended use are
-verified. A Secret Store does not make an invalid token valid. Example after a
-LIGHT-specific GitLab read secret has been created:
-
-```toml
-[[secrets_store_secrets]]
-binding = "LIGHT_GITLAB_READ_TOKEN"
-store_id = "<LIGHT_SECRET_STORE_ID>"
-secret_name = "LIGHT_GITLAB_READ_TOKEN"
-```
-
-Use the same pattern for GitHub and Cloudflare read tokens. Binding a Secret Store
-value requires a Cloudflare role that can deploy Secrets Store bindings. See
-Cloudflare's [Workers integration](https://developers.cloudflare.com/secrets-store/integrations/workers/)
+Secrets Store bindings. The adapter awaits `env.<binding>.get()` for Secret Store
+bindings and continues to accept ordinary secret strings. `wrangler.toml` maps
+account-level `GITHUB_TOKEN`, `GITLAB_TOKEN`, and `CLOUDFLARE_TOKEN` values to
+LIGHT-specific binding aliases; the values remain in Cloudflare and are never
+committed. Live provider access still needs verification after deployment. A
+Secret Store does not make an invalid token valid. Binding a Secret Store value
+requires a Cloudflare role that can deploy Secrets Store bindings. See Cloudflare's
+[Workers integration](https://developers.cloudflare.com/secrets-store/integrations/workers/)
 and [Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
 Never copy GO Brain, WorkHub, or Factory tokens into LIGHT.
 

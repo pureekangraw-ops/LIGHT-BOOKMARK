@@ -61,6 +61,9 @@ async function readSecret(value){
   }
   return "";
 }
+async function providerToken(env,storeBinding,workerSecret){
+  return await readSecret(env[storeBinding])||await readSecret(env[workerSecret]);
+}
 function configuration(required,invalid=[]){
   const missing=required.filter(([,present])=>!present).map(([name])=>name);
   const configured=missing.length===0&&invalid.length===0;
@@ -78,9 +81,9 @@ function gitlabAccessFailure(project,env,resourceKind,path){
 function status(env){
   return {read_only:true,configuration_only:true,live_access_verified:false,
     note:"ready/configured describe local configuration only, not verified provider access. write_actions describes this status tool, not other tools.",
-    github:{...configuration([["LIGHT_GITHUB_REPOS",list(env.LIGHT_GITHUB_REPOS).size]]),mode:hasSecretBinding(env.LIGHT_GITHUB_READ_TOKEN)?"token":"public_only"},
-    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN)?"token":"public_only",private_project_route:hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN)?"LIGHT_DIRECT_TOKEN":"LIGHT_DIRECT_TOKEN_REQUIRED"},
-    cloudflare:{...configuration([["LIGHT_CF_READ_TOKEN",env.LIGHT_CF_READ_TOKEN],["LIGHT_CF_ACCOUNT_ID",env.LIGHT_CF_ACCOUNT_ID],["LIGHT_CF_WORKERS",list(env.LIGHT_CF_WORKERS).size]],env.LIGHT_CF_ACCOUNT_ID&&!/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID)?["LIGHT_CF_ACCOUNT_ID"]:[])},
+    github:{...configuration([["LIGHT_GITHUB_REPOS",list(env.LIGHT_GITHUB_REPOS).size]]),mode:hasSecretBinding(env.LIGHT_GITHUB_READ_TOKEN_STORE)||hasSecretBinding(env.LIGHT_GITHUB_READ_TOKEN)?"token":"public_only"},
+    gitlab:{...configuration([["LIGHT_GITLAB_PROJECTS",list(env.LIGHT_GITLAB_PROJECTS).size]]),mode:hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN_STORE)||hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN)?"token":"public_only",private_project_route:hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN_STORE)||hasSecretBinding(env.LIGHT_GITLAB_READ_TOKEN)?"LIGHT_DIRECT_TOKEN":"LIGHT_DIRECT_TOKEN_REQUIRED"},
+    cloudflare:{...configuration([["LIGHT_CF_READ_TOKEN",hasSecretBinding(env.LIGHT_CF_READ_TOKEN_STORE)||hasSecretBinding(env.LIGHT_CF_READ_TOKEN)],["LIGHT_CF_ACCOUNT_ID",env.LIGHT_CF_ACCOUNT_ID],["LIGHT_CF_WORKERS",list(env.LIGHT_CF_WORKERS).size]],env.LIGHT_CF_ACCOUNT_ID&&!/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID)?["LIGHT_CF_ACCOUNT_ID"]:[])},
     drive:{...configuration([["LIGHT_GOOGLE_CLIENT_ID",env.LIGHT_GOOGLE_CLIENT_ID],["LIGHT_GOOGLE_CLIENT_SECRET",env.LIGHT_GOOGLE_CLIENT_SECRET],["LIGHT_GOOGLE_REFRESH_TOKEN or GOOGLE_REFRESH_TOKEN",env.LIGHT_GOOGLE_REFRESH_TOKEN||env.GOOGLE_REFRESH_TOKEN]]),mode:"LIGHT_DIRECT_GOOGLE_OAUTH",note:"Local configuration only; live API access, OAuth scopes and file permissions must be tested separately."},
     pantheon:{mode:"LIGHT_TASK_PREPARE"},write_actions:false};
 }
@@ -89,14 +92,14 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   if(name==="light_connections_status"){need(only(args,[]),"INVALID_INPUT");return status(env);}
   if(name==="light_github_repo"){
     repoArgs(args,"repo",env.LIGHT_GITHUB_REPOS);
-    const token=await readSecret(env.LIGHT_GITHUB_READ_TOKEN);
+    const token=await providerToken(env,"LIGHT_GITHUB_READ_TOKEN_STORE","LIGHT_GITHUB_READ_TOKEN");
     const data=await requestData("https://api.github.com/repos/"+args.repo,
       {"Accept":"application/vnd.github+json","User-Agent":"LIGHT-Bookmark",...auth(token)},false,fetcher);
     return {source:"github",repo:data.full_name,description:data.description||"",private:!!data.private,default_branch:data.default_branch,url:data.html_url,updated_at:data.updated_at};
   }
   if(name==="light_github_file"){
     fileArgs(args,"repo",env.LIGHT_GITHUB_REPOS);
-    const token=await readSecret(env.LIGHT_GITHUB_READ_TOKEN);
+    const token=await providerToken(env,"LIGHT_GITHUB_READ_TOKEN_STORE","LIGHT_GITHUB_READ_TOKEN");
     const suffix=args.path.split("/").map(encodeURIComponent).join("/");
     const url="https://api.github.com/repos/"+args.repo+"/contents/"+suffix+(args.ref?"?ref="+encodeURIComponent(args.ref):"");
     const data=await requestData(url,{"Accept":"application/vnd.github+json","User-Agent":"LIGHT-Bookmark",...auth(token)},false,fetcher);
@@ -111,7 +114,7 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   }
   if(name==="light_gitlab_project"){
     repoArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
-    const token=await readSecret(env.LIGHT_GITLAB_READ_TOKEN);
+    const token=await providerToken(env,"LIGHT_GITLAB_READ_TOKEN_STORE","LIGHT_GITLAB_READ_TOKEN");
     let data;
     try {data=await requestData("https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project),
       {"Accept":"application/json",...auth(token)},false,fetcher);}
@@ -123,7 +126,7 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   }
   if(name==="light_gitlab_file"){
     fileArgs(args,"project",env.LIGHT_GITLAB_PROJECTS);
-    const token=await readSecret(env.LIGHT_GITLAB_READ_TOKEN);
+    const token=await providerToken(env,"LIGHT_GITLAB_READ_TOKEN_STORE","LIGHT_GITLAB_READ_TOKEN");
     const url="https://gitlab.com/api/v4/projects/"+encodeURIComponent(args.project)+"/repository/files/"+encodeURIComponent(args.path)+"/raw?ref="+encodeURIComponent(args.ref||"main");
     let body;
     try{body=await requestData(url,{"Accept":"text/plain",...auth(token)},true,fetcher);}
@@ -138,7 +141,7 @@ export async function runProviderTool(name,args={},env={},fetcher=fetch){
   if(name==="light_cloudflare_worker"){
     need(only(args,["script"])&&safeScript(args.script),"INVALID_INPUT");
     allow(args.script,env.LIGHT_CF_WORKERS);
-    const token=await readSecret(env.LIGHT_CF_READ_TOKEN);
+    const token=await providerToken(env,"LIGHT_CF_READ_TOKEN_STORE","LIGHT_CF_READ_TOKEN");
     need(token&&/^[a-f0-9]{32}$/i.test(env.LIGHT_CF_ACCOUNT_ID||""),"CLOUDFLARE_READ_CONNECTION_NOT_CONFIGURED");
     const data=await requestData("https://api.cloudflare.com/client/v4/accounts/"+env.LIGHT_CF_ACCOUNT_ID+
       "/workers/scripts/"+encodeURIComponent(args.script)+"/deployments?per_page=5",

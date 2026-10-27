@@ -11,6 +11,23 @@ LIGHT_CF_WORKERS = "light-bookmark,go-together,phatheon-workhub,factory-district
 # for public repositories; use LIGHT_GITHUB_READ_TOKEN/LIGHT_GITLAB_READ_TOKEN for private.
 
 
+# Bind account-level provider tokens from the existing Cloudflare Secrets Store.
+# Values remain in Cloudflare and are read asynchronously by LIGHT Bookmark.
+[[secrets_store_secrets]]
+binding = "LIGHT_GITHUB_READ_TOKEN_STORE"
+store_id = "8de46cb689fc4779875025b618d3bbd4"
+secret_name = "GITHUB_TOKEN"
+
+[[secrets_store_secrets]]
+binding = "LIGHT_GITLAB_READ_TOKEN_STORE"
+store_id = "8de46cb689fc4779875025b618d3bbd4"
+secret_name = "GITLAB_TOKEN"
+
+[[secrets_store_secrets]]
+binding = "LIGHT_CF_READ_TOKEN_STORE"
+store_id = "8de46cb689fc4779875025b618d3bbd4"
+secret_name = "CLOUDFLARE_TOKEN"
+
 # Bind the existing D1 database by inserting its real ID before deploying.
 [[d1_databases]]
 binding = "BOOKMARKS"
